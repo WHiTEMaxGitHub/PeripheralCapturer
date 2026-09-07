@@ -1,0 +1,32 @@
+﻿# CMakeList.txt: PeripheralCapturer 的 CMake 项目，在此处包括源代码并定义
+# 项目特定的逻辑。
+#
+
+# 将源代码添加到此项目的可执行文件。
+add_executable (PeripheralCapturer
+    main.cpp
+)
+
+target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES})
+
+if (WIN32)
+  find_program(WINDEPLOYQT_EXECUTABLE
+    NAMES windeployqt windeployqt.exe
+    HINTS "${CMAKE_PREFIX_PATH}/bin"
+  )
+  if (WINDEPLOYQT_EXECUTABLE)
+    add_custom_command(TARGET PeripheralCapturer POST_BUILD
+      COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+        --no-translations
+        --no-compiler-runtime
+        "$<TARGET_FILE:PeripheralCapturer>"
+      COMMENT "Deploying Qt runtime next to the executable"
+    )
+  endif()
+endif()
+
+if (CMAKE_VERSION VERSION_GREATER 3.12)
+  set_property(TARGET PeripheralCapturer PROPERTY CXX_STANDARD 20)
+endif()
+
+# TODO: 如有需要，请添加测试并安装目标。

@@ -1,0 +1,119 @@
+# 基于 LLVM 风格进行自定义
+BasedOnStyle: LLVM
+# 指定语言类型为 C/C++
+Language: Cpp
+
+# ==================== 缩进设置 ====================
+# 缩进宽度：4个空格
+IndentWidth: 4
+# Tab键宽度：4个空格
+TabWidth: 4
+# 不使用Tab字符，全部使用空格
+UseTab: Never
+
+# ==================== 大括号设置 ====================
+# 大括号位置：Attach 表示与定义在同一行
+BreakBeforeBraces: Attach
+
+# ==================== 冒号空格设置 ====================
+# 类继承冒号前不留空格（class Derived: public Base）
+SpaceBeforeInheritanceColon: false
+# 构造函数初始化列表冒号前不留空格（Point(): x(0), y(0)）
+SpaceBeforeCtorInitializerColon: false
+# 基于范围的for循环冒号前不留空格（for (auto x: vec)）
+SpaceBeforeRangeBasedForLoopColon: false
+
+# ==================== 指针和引用设置 ====================
+# 指针星号的位置：Left 表示贴在类型左侧（int* p）
+PointerAlignment: Left
+# 引用符号的位置：跟随指针的设置
+ReferenceAlignment: Pointer
+
+# ==================== 代码长度限制 ====================
+# 每行代码最大长度限制，80字符是比较传统的限制
+# 超过此长度的代码会自动换行
+ColumnLimit: 80
+
+# ==================== 函数长度设置 ====================
+# 允许短函数在一行显示
+# All: 允许所有短函数在一行（包括构造函数、普通函数等）
+AllowShortFunctionsOnASingleLine: All
+# 允许短的函数块（如if语句）写在一行
+AllowShortIfStatementsOnASingleLine: true
+# 允许短的循环写在一行
+AllowShortLoopsOnASingleLine: true
+# 允许短的case标签在一行
+AllowShortCaseLabelsOnASingleLine: true
+
+# ==================== 函数参数设置 ====================
+# 允许函数的所有参数放在同一行
+AllowAllArgumentsOnNextLine: true
+# 允许函数声明的所有参数放在同一行
+AllowAllParametersOfDeclarationOnNextLine: true
+# 在函数定义时，参数列表的换行方式
+AlwaysBreakAfterDefinitionReturnType: None
+# 在函数声明时，参数列表的换行方式
+AlwaysBreakAfterReturnType: None
+
+# ==================== 构造函数初始化列表设置 ====================
+# 构造函数初始化列表的换行方式
+# AfterColon: 在冒号后换行，但允许短列表在一行
+BreakConstructorInitializers: AfterColon
+# 允许所有初始化器在一行（不会强制每个成员一行）
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+# 如果初始化列表很短，不强制换行
+AllowAllConstructorInitializersOnNextLine: false
+# 初始化列表的缩进宽度
+ConstructorInitializerIndentWidth: 4
+
+# ==================== 对齐设置 ====================
+# 连续的宏定义对齐
+AlignConsecutiveMacros: true
+# 连续的赋值操作符对齐
+AlignConsecutiveAssignments: false
+# 连续的声明对齐
+AlignConsecutiveDeclarations: false
+# 尾部的注释对齐
+AlignTrailingComments: true
+# 转义的换行符对齐（如宏定义中的 \）
+AlignEscapedNewlines: Right
+# 连续的位字段对齐
+AlignConsecutiveBitFields: false
+
+# ==================== 空格设置 ====================
+# 在圆括号内不添加空格（func(a, b) 而非 func( a, b )）
+SpaceInEmptyParentheses: false
+# 在函数调用时，左括号前不添加空格
+SpaceBeforeParens: ControlStatements
+# 在模板的尖括号周围添加空格
+SpaceAfterTemplateKeyword: false
+# 在逻辑运算符周围添加空格
+SpaceBeforeAssignmentOperators: true
+
+# ==================== 换行设置 ====================
+# 在模板声明后换行
+AlwaysBreakTemplateDeclarations: Yes
+# 访问修饰符（public, private等）的缩进
+AccessModifierOffset: -4
+# 空行保留的最大数量
+MaxEmptyLinesToKeep: 2
+# 排序 #includes
+IncludeBlocks: Regroup
+# 缩进 case 标签
+IndentCaseLabels: true
+# 缩进 goto 标签
+IndentGotoLabels: false
+
+# ==================== 惩罚设置（控制换行偏好）====================
+# 超过列限制的惩罚（值越高越不愿意超过限制）
+PenaltyExcessCharacter: 100
+# 返回类型单独一行的惩罚
+PenaltyReturnTypeOnItsOwnLine: 100
+# 函数调用参数换行的惩罚
+PenaltyBreakBeforeFirstCallParameter: 100
+# 赋值操作换行的惩罚
+PenaltyBreakAssignment: 100
+# 字符串字面量换行的惩罚
+PenaltyBreakString: 100
+# 注释换行的惩罚
+PenaltyBreakComment: 100
