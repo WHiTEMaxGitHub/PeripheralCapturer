@@ -21,6 +21,20 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Widgets)
 
+include(FetchContent)
+FetchContent_Declare(
+  spdlog
+  GIT_REPOSITORY https://github.com/gabime/spdlog.git
+  GIT_TAG v1.17.0
+  GIT_SHALLOW TRUE
+)
+set(SPDLOG_BUILD_EXAMPLE OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_BENCH OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(spdlog)
+# VS IntelliSense cannot resolve spdlog's BUILD_INTERFACE genex; expose a real path.
+set(SPDLOG_INCLUDE_DIR "${spdlog_SOURCE_DIR}/include")
+
 set(QT_LIBRARIES Qt6::Core Qt6::Widgets)
 
 # 包含子项目。

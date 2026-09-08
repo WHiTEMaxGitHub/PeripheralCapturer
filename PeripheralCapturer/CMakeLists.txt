@@ -8,9 +8,12 @@ add_executable (PeripheralCapturer
     Layout/MainWindow.h
     Layout/MainWindow.cpp
     Layout/MainWindow.ui
+    utils/Logger.h
+    utils/Logger.cpp
 )
 
-target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES})
+target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog)
+target_include_directories(PeripheralCapturer PRIVATE "${SPDLOG_INCLUDE_DIR}")
 
 if (WIN32)
   find_program(WINDEPLOYQT_EXECUTABLE
