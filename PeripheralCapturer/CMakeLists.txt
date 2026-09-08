@@ -10,6 +10,8 @@ add_executable (PeripheralCapturer
     Layout/MainWindow.ui
     utils/Logger.h
     utils/Logger.cpp
+    capture/Capturer.h
+    capture/Capturer.cpp
 )
 
 target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog)
