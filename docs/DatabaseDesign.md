@@ -1,14 +1,14 @@
 # 数据库设计
 
-SQLite 存按键编码、录制素材、录制库元数据。颜色、布局、导出 fps 不进库，见 [架构设计 · JSON 配置](ArchitectureDesign.md)。
+SQLite 存按键编码和录制库元数据。实时事件流写在会话旁的 **二进制 append-only log** 里，这才是录制事实源。颜色、布局、导出 fps 不进库，见 [架构设计](ArchitectureDesign.md)。
 
 ## 原则
 
-1. **编码在库，且必须能由用户注册。** 码本同时覆盖非线性（按下/松开）和线性（手柄轴、扳机、压感等连续量）。预置只是种子；用户要能自己加码、绑原生控件、改范围和标签。没有这层，SQLite 只是一张写死的对照表，优势就没了。`key_id`、值类型、原生码、会话下标以数据库为准。Profile 只决定颜色和导出 fps。
-2. **素材与皮肤分离。** 回放或导出时再选 Profile。会话没有必填 `profile_id`。
-3. **录制库界面是产品。** 列表、搜索、检查、改名、标签、删除、导入导出备份都必须走 UI。禁止只暴露一张 SQL 表。
-4. **帧存状态。** `state_blob` 按 `format_version` 用 C++ 解码器解释。不做 Profile `field_mapping` 字节偏移。
-5. **元数据可改，帧少改。** 显示名、说明、标签、marker 备注可随时改。改 JSON 颜色或导出 fps 不改 `key_codes` 和已录帧。
+1. **编码在库，且必须能由用户注册。** 码本覆盖非线性（按下/松开）和线性（轴、扳机、踏板等）。预置只是种子。
+2. **InputEvent 是事实源。** SQLite 不靠「只存帧末 bitset」代替事件流；帧表若存在，只是派生缓存。
+3. **素材与皮肤分离。** 回放/导出时再选 Profile。
+4. **录制库界面是产品。** 列表、检查、改名、标签、删除、导入导出走 UI。
+5. **元数据可改，事件 log 少改。** 显示名/标签/marker 备注可改；改 JSON 颜色不影响 log。
 
 ## 表结构
 
@@ -83,9 +83,7 @@ KeyCodeRepository 对 UI 暴露：`list` / `create` / `update` / `remove` / `bin
 
 ### sessions
 
-### sessions
-
-一次录制一行，录制库列表的主表。
+一次录制一行，录制库列表的主表。事件本体在 `event_log_path` 指向的二进制文件里。
 
 ```sql
 CREATE TABLE sessions (
@@ -95,7 +93,9 @@ CREATE TABLE sessions (
     end_time INTEGER,
     fps INTEGER NOT NULL DEFAULT 60,
     total_frames INTEGER NOT NULL DEFAULT 0,
+    total_events INTEGER NOT NULL DEFAULT 0,
     format_version INTEGER NOT NULL DEFAULT 1,
+    event_log_path TEXT NOT NULL,
     profile_name_snapshot TEXT,
     note TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -107,11 +107,14 @@ CREATE TABLE sessions (
 | --- | --- |
 | `display_name` | 列表显示名，界面可改 |
 | `start_time` / `end_time` | Unix 毫秒；录制中 `end_time` 为 NULL |
-| `fps` | 录制采样率。开录时写入，改 JSON 导出 fps 不影响它 |
-| `total_frames` | 提交后回填 |
-| `format_version` | 帧二进制版本，对应 C++ 解码器 |
+| `fps` | 对齐用的帧率（默认 60）。`frameIndex = timestampUs / (1e6/fps)` |
+| `event_log_path` | 相对应用目录的二进制 log。这是事实源 |
+| `total_events` / `total_frames` | 停录后回填 |
+| `format_version` | 事件 log 格式版本 |
 | `profile_name_snapshot` | 可选，开录时的皮肤名，不是外键 |
 | `note` | 说明，界面可改 |
+
+`frame_data` / `axis_samples` 若保留，只作检查器加速，可从 log 重建。删除会话时同时删 log 文件。
 
 不要：`codec_id` / `profile_id` 外键，不要和 JSON Profile 强制关联。
 
@@ -369,9 +372,10 @@ SELECT 1, id FROM tags WHERE tag = 'aim';
 
 ## 取舍
 
-- **库存录制**：事务、查询、标签方便；必须做录制库 UI + 备份导入导出。
-- **配置用 JSON**：可手改、可分享；库表不再承担 Profile / codec 注册。
-- **run + bitset**：空闲段不爆炸；随机访问仍是一条范围查询。
+- **SQLite**：码本、会话列表、标签。实时事件不往库里逐条 INSERT。
+- **二进制 log**：高频 InputEvent 的事实源。
+- **配置用 JSON**：可手改、可分享。
+- **60fps 快照**：只给浮层，不代替 log。
 
 ## C++ 类型
 
@@ -391,3 +395,4 @@ SELECT 1, id FROM tags WHERE tag = 'aim';
 | 1.2 | 2026-09-06 | JSON 只管颜色/导出 fps；全局 `key_codes` |
 | 1.3 | 2026-09-06 | 码本区分 digital/analog；线性轴为正式通道 |
 | 1.4 | 2026-09-06 | 用户自定义注册；`origin`；码本界面为正式入口 |
+| 1.5 | 2026-09-08 | 会话指向二进制事件 log；帧表降为派生缓存 |
