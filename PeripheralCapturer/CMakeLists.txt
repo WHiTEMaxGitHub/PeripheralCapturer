@@ -5,6 +5,9 @@
 # 将源代码添加到此项目的可执行文件。
 add_executable (PeripheralCapturer
     main.cpp
+    Layout/MainWindow.h
+    Layout/MainWindow.cpp
+    Layout/MainWindow.ui
 )
 
 target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES})

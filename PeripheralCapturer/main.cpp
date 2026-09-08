@@ -1,10 +1,11 @@
-﻿#include <QApplication>
-#include <QWidget>
+﻿#include "Layout/MainWindow.h"
+
+#include <QApplication>
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
 
-    QWidget window;
+    MainWindow window;
     window.setWindowTitle("Peripheral Capturer");
     window.resize(1280, 720);
     window.show();
