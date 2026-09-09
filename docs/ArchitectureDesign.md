@@ -4,11 +4,11 @@
 
 形态对齐 Tauri：**C++ Native Core** 负责系统能力，**Qt WebView 浮层**负责渲染，两者用 **本机 WebSocket** 解耦。Raw Input / XInput 负责高精度采集，WebView 只消费降频快照。
 
-配套文档：[数据库设计](DatabaseDesign.md)、[README](../README.md)。
+配套文档：[数据库设计](DatabaseDesign.md)、[InputEvent](InputEvent.md)、[设备注册表](DeviceRegistry.md)、[时钟](Timer.md)、[输入队列与事件总线](InputQueue.md)、[README](../README.md)。
 
 ## 目标
 
-在 Windows 上录制键盘、鼠标、摇杆、手柄、方向盘、脚踏板等输入。采集时保留全量 **InputEvent**（带微秒时间戳），再映射到 60fps 帧号；浮层按 60fps 快照绘制。配置手感对齐 Keyboard Display：颜色和导出参数用可手改 JSON；按键编码与会话元数据在 SQLite。
+在 Windows 上录制键盘、鼠标、摇杆、手柄、方向盘、脚踏板等输入。采集时保留全量 **InputEvent**（带微秒时间戳），再按**本场录制的抓取帧率**归到 `frameIndex`；浮层按同一套（或更低的）快照频率绘制。导出帧率单独可配，不改已写入的时间戳。
 
 ## 平台与捕获
 
@@ -97,7 +97,7 @@ InputProcessor          RawInputPacket / XInput 差分 → InputEvent
   ↓
 InputEventBus
   ├── InputRecorder     全量二进制 log
-  ├── FrameAggregator   聚合成 OverlayInputSnapshot（30/60fps）
+  ├── FrameAggregator   按本场 captureFps 聚合成 OverlayInputSnapshot
   ├── LocalWebSocket    推快照、收命令
   └── DeviceRouter      XInput 优先，HID 侧过滤 IG_
   ↓
@@ -129,17 +129,40 @@ WM_INPUT → GetRawInputData → QPC 时间戳 → RawInputPacket 入队 → 立
 
 HID 解析、和上一份状态比、生成 ButtonDown/AxisChanged，放到 **InputProcessingThread**。
 
-### 60fps 怎么对齐
+### 抓取帧率与导出帧率
 
-不要每 16.6ms 轮询一次输入。事件来了就记；`frameIndex = timestampUs / (1000000/60)`。XInput 本身是轮询，建议约 250Hz，再映射到同一套 frameIndex。
+这是两个数，不要合成一个全局 `#define 60`。
+
+| 名称 | 作用 | 怎么定 |
+| --- | --- | --- |
+| **抓取 / 对齐帧率** `sessions.fps` | 把 `timestampUs` 映射成 `frameIndex`，快照也按它 | **点开始录制时**从当前配置拷入并锁定。改配置只影响下一场 |
+| **导出帧率** `export.fps` | 导出视频或重采样时间线时用 | Profile JSON 随时可改，只影响导出，不改 log |
+
+事件仍然是「来了就记」，不是按抓取帧率去轮询硬件。抓取帧率只决定怎么切帧。
+
+开录 = 把当前录制相关配置**拷一份钉死**到这一场，再算 `kFrameUs`。当场录制过程中改 Profile / UI，只影响**下一场**，不改本场的 `fps` 和快照频率。
+
+```cpp
+// start_recording 时
+session.fps = currentProfile.recording.defaultFps;
+session.recording_config_snapshot = serialize(currentProfile.recording); // 本场只读副本
+const int captureFps = session.fps;
+const int64_t kFrameUs = 1'000'000 / captureFps;
+```
+
+导出帧率仍是另一套：用**导出当下**的 `export.fps`（以及当时选的皮肤）。不要用本场冻结的抓取 fps 去覆盖导出配置，也不要用后来改过的 `recording.defaultFps` 去重算这场已经写好的 `frameIndex`。
+
+XInput 轮询频率（例如 250Hz）是采集后端的事，和 `sessions.fps` 无关：轮询可以更快，再归到同一套 `frameIndex`。
+
+浮层快照默认跟 `captureFps`；若 UI 吃力，可以另用更低的 overlay fps，那只是派生，不是第二份事实源。
 
 ### RawInputPacket 与 InputEvent
 
 `RawInputPacket`：贴近系统（qpc、hDevice、rawType、原始 bytes），便于以后重解析。
 
-`InputEvent`：业务事实（sequence、timestampUs、frameIndex、deviceId、type、payload）。高频下时间戳可能相同，**先时间再 sequence** 排序。
+`InputEvent`：业务事实（sequence、时间、frameIndex、deviceID、backend、deviceType、type、control、数值）。高频下时间戳可能相同，**先时间再 sequence** 排序。字段表见 [InputEvent](InputEvent.md)。
 
-鼠标游戏向保存 `dx/dy`，并区分 `MOUSE_MOVE_ABSOLUTE`。键盘保存 VKey、ScanCode、extended、repeat。HID 建议同时留 raw bytes 与解析结果。
+鼠标在 `InputEvent` 上只表达相对位移：`dx`/`dy` 永远是增量；`MOUSE_MOVE_ABSOLUTE` 在处理线程差分。键盘保留 VKey、ScanCode、extended，**不发连发 KeyDown**。HID 原始字节留在 `RawInputPacket`，事件只留解析结果。
 
 ### 设备路由
 
@@ -147,9 +170,11 @@ Xbox 类：路径含 `IG_` 的 HID 默认交给 XInput，Raw HID 忽略，避免
 
 ## 模块说明
 
-**MessageBus / InputEventBus**：跨线程发 InputEvent。浮层不订阅全量鼠标 move。
+**MessageBus / InputEventBus**：跨线程发 InputEvent。浮层不订阅全量鼠标 move。字段与接线见 [输入队列与事件总线](InputQueue.md)。
 
-**DeviceRegistry / DeviceRouter**：运行期 `hDevice` → `mouse_001` 等稳定会话内 ID。
+**DeviceRegistry / DeviceRouter**：运行期 `hDevice` → `mouse_1` 等会话内 ID；`IG_` HID 忽略。见 [设备注册表](DeviceRegistry.md)。
+
+**Timer**：QPC 微秒、`sequence`、按本场 fps 算 `frameIndex`。见 [时钟](Timer.md)。
 
 **Recorder**：append-only 二进制；SQLite 只记会话行和 log 路径。Marker、控制热键完整触发时不写入按键流。
 
@@ -172,7 +197,7 @@ Xbox 类：路径含 `IG_` 的 HID 默认交给 XInput，Raw HID 忽略，避免
   → Raw Input 线程：拷包 + 时间戳
   → 处理线程：解析、路由、查/登记 key_codes、生成 InputEvent
   → Recorder 二进制 log + 会话元数据入库
-  → FrameAggregator 60fps 快照
+  → FrameAggregator 按 captureFps 出快照
   → WebSocket 推给浮层（可丢旧帧）
 ```
 
@@ -220,8 +245,8 @@ Profile 不预生成。Debug 用系统 AppData。
 
 只放观感与导出。`overlay.rows[].id` 必须等于 `key_codes.key_id`。
 
-`recording.defaultFps`：建议新会话对齐帧率（默认 60），开录后写入 `sessions.fps`。  
-`export.fps`：导出重采样，不改已录时间戳。
+`recording.defaultFps`：工作副本里的抓取默认值，随时能改。**只有点开始录制的那一刻**拷进 `sessions.fps` 并冻结 `recording_config_snapshot`。当场和事后改这个字段，下一场才生效。  
+`export.fps`：导出时用当时的 Profile，不写进冻结的录制配置。
 
 非法 JSON 只提示，不擅自覆盖用户文件。
 
@@ -240,31 +265,13 @@ cmake --build --preset x64-debug
 | --- | --- |
 | v0.1 | CMake、spdlog、配置窗空壳、码本表、录制库空壳 |
 | v0.2 | 隐藏窗口 Raw Input：键盘鼠标 → InputEvent 入队（WndProc 不重活） |
-| v0.3 | 二进制 recorder、frameIndex 对齐 60fps、WebSocket 快照、浮层 WebView |
+| v0.3 | 二进制 recorder、按本场 fps 归帧、WebSocket 快照、浮层 WebView |
 | v0.4 | HID 解析、XInput 路由、码本监听绑定 |
 | v0.5 | 录制库检查器、回放、JSON/CSV 导出、穿透热键 |
 | v1.0 | 多设备、安装包、可选 overlay 视频 |
 
-## 附录：事件形状（示意）
+## 附录：事件形状
 
-```cpp
-enum class InputSource { RawInput, XInput, Synthetic };
-enum class InputEventType {
-    KeyDown, KeyUp,
-    MouseMove, MouseButtonDown, MouseButtonUp, MouseWheel,
-    ButtonDown, ButtonUp, AxisChanged, HatChanged,
-    DeviceConnected, DeviceDisconnected
-};
-
-struct InputEventHeader {
-    uint64_t sequence = 0;
-    int64_t timestampUs = 0;
-    int frameIndex = 0;
-    std::string deviceId;
-    InputEventType type;
-};
-
-// payload 用 variant：Key / MouseMove(dx,dy) / Button / Axis(normalized) / Hat
-```
+字段与「何时发」见 [InputEvent](InputEvent.md)。
 
 浮层快照不是事实源，只含按下的 key_id、鼠标 delta 合计、轴当前值。

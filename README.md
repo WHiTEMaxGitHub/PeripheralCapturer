@@ -2,18 +2,24 @@
 
 **仅 Windows。** Native Core（C++ / Raw Input / XInput）采集输入，Qt WebView 做桌面浮层，本机 WebSocket 连接两边。
 
-录制保存全量 **InputEvent**（微秒时间戳，再映射到 60fps 帧号）。浮层只画降频快照，避免 1000Hz 鼠标把 JS 打爆。按键编码和会话列表在 SQLite；颜色、布局、导出 fps 用可手改 JSON。
+录制保存全量 **InputEvent**（微秒时间戳，再按本场抓取帧率归到 `frameIndex`）。浮层只画降频快照。导出帧率在 Profile 里单独配。按键编码和会话列表在 SQLite；颜色、布局用可手改 JSON。
 
 工程保持 Visual Studio CMake：顶层配置 + `PeripheralCapturer/` 放源码。日常用 **x64-debug / x64-release**。详细设计：
 
 - [架构设计](docs/ArchitectureDesign.md)
 - [数据库设计](docs/DatabaseDesign.md)
+- [InputEvent 事实源](docs/InputEvent.md)
+- [设备注册表](docs/DeviceRegistry.md)
+- [时钟 Timer](docs/Timer.md)
+- [输入队列与事件总线](docs/InputQueue.md)
 
 ## 思路一句话
 
 **事件流是事实源；JSON 只改怎么画；码本在库里且用户可注册。**
 
-不要靠每 16ms 轮询一次来「录 60fps」。事件来了就记，再用时间戳归帧。一帧里的 down/up 不能只看帧末状态。
+不要靠「每 16ms 问一次硬件」来录制。事件来了就记，再用本场的 `kFrameUs` 归帧。一帧里的 down/up 不能只看帧末状态。
+
+抓取帧率在**开始录制时**从当前配置拷进这一场并锁定。录着改、录完再改，都只作用于之后新开的录制。导出帧率每次导出用当时的配置。
 
 ## 技术栈
 

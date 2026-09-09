@@ -1,6 +1,6 @@
 # 数据库设计
 
-SQLite 存按键编码和录制库元数据。实时事件流写在会话旁的 **二进制 append-only log** 里，这才是录制事实源。颜色、布局、导出 fps 不进库，见 [架构设计](ArchitectureDesign.md)。
+SQLite 存按键编码和录制库元数据。实时事件流写在会话旁的 **二进制 append-only log** 里，这才是录制事实源。颜色、布局、导出 fps 不进库，见 [架构设计](ArchitectureDesign.md)。事件字段见 [InputEvent](InputEvent.md)。
 
 ## 原则
 
@@ -96,6 +96,7 @@ CREATE TABLE sessions (
     total_events INTEGER NOT NULL DEFAULT 0,
     format_version INTEGER NOT NULL DEFAULT 1,
     event_log_path TEXT NOT NULL,
+    recording_config_snapshot TEXT NOT NULL,
     profile_name_snapshot TEXT,
     note TEXT,
     created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
@@ -107,7 +108,8 @@ CREATE TABLE sessions (
 | --- | --- |
 | `display_name` | 列表显示名，界面可改 |
 | `start_time` / `end_time` | Unix 毫秒；录制中 `end_time` 为 NULL |
-| `fps` | 对齐用的帧率（默认 60）。`frameIndex = timestampUs / (1e6/fps)` |
+| `fps` | 开始录制时从配置拷入，本场只读 |
+| `recording_config_snapshot` | 开录时冻结的 `recording{}` JSON 副本。工作区 Profile 再改也不回写这里 |
 | `event_log_path` | 相对应用目录的二进制 log。这是事实源 |
 | `total_events` / `total_frames` | 停录后回填 |
 | `format_version` | 事件 log 格式版本 |
@@ -191,7 +193,7 @@ CREATE TABLE axis_samples (
 
 `session_axes` 只收录 `value_kind = analog` 的码，`axis_index` 从 0 连续。`values_blob` 按该会话轴顺序存 `float32`（或后续版本约定）。连续相同向量可 RLE，写法对齐 `frame_data`。
 
-鼠标相对位移（delta）也是连续量，但语义是「这一帧的增量」而不是绝对轴位，实现时可以走同一套 analog 通道（例如 `mouse-dx` / `mouse-dy`，范围按设备或另行约定），不要另起第三套编码。
+鼠标位移也是连续量，语义固定为「这一帧的增量」而不是指针的绝对轴位（绝对报告在写入 `InputEvent` 前已差分）。实现时走同一套 analog 通道（例如 `mouse-dx` / `mouse-dy`），不要另起第三套编码，也不要在导出/浮层里再分支 `MOUSE_MOVE_ABSOLUTE`。
 
 ### markers
 
@@ -325,7 +327,7 @@ DELETE FROM sessions WHERE id = ?;
 
 ## 写入约定
 
-- 开录：`INSERT sessions`，`end_time` 为 NULL
+- 开录：把当前 `recording` 配置写入 `recording_config_snapshot` 和 `fps`，`end_time` 为 NULL。此后只读这份副本。
 - 进行中：内存攒 runs，批量 `INSERT frame_data`；可定期更新 `total_frames`
 - 停录：写剩余 runs，更新 `end_time` / `total_frames` / `updated_at`
 - 改名、改标签、改备注：只碰元数据表，禁止重写 `frame_data`
