@@ -1,5 +1,5 @@
 ﻿#include "MainWindow.h"
-
+#include <spdlog/spdlog.h>
 MainWindow::MainWindow(QWidget* parent): QMainWindow(parent) {
     ui.setupUi(this);
     ui.LeftSideBar->addItem("Test Page");
@@ -12,6 +12,7 @@ MainWindow::MainWindow(QWidget* parent): QMainWindow(parent) {
             ui.stackedWidget, &QStackedWidget::setCurrentIndex);
 
     ui.LeftSideBar->setCurrentRow(0);
+    spdlog::info("MainWindow created");
 }
 
 MainWindow::~MainWindow() {}
