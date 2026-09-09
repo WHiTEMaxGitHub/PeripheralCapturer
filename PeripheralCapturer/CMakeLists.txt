@@ -11,6 +11,8 @@ add_executable (PeripheralCapturer
     utils/Logger.h
     utils/Logger.cpp
     Input/InputEvent.h
+    Input/Timer.h
+    Input/Timer.cpp
 )
 
 target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog)
