@@ -8,6 +8,9 @@ add_executable (PeripheralCapturer
     Layout/MainWindow.h
     Layout/MainWindow.cpp
     Layout/MainWindow.ui
+    overlay/PovWindow.h
+    overlay/PovWindow.cpp
+    web/pov.qrc
     utils/Logger.h
     utils/Logger.cpp
     Input/InputEvent.h

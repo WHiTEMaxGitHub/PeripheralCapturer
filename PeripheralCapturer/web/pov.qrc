@@ -1,0 +1,5 @@
+<RCC>
+  <qresource prefix="/pov">
+    <file alias="index.html">fallback.html</file>
+  </qresource>
+</RCC>
