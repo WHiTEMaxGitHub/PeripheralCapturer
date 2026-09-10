@@ -11,7 +11,7 @@
 #include <cstdint>
 #include <vector>
 
-// 捕获线程（WM_INPUT）→ 处理线程 的载荷。还不是 InputEvent。
+// 捕获线程（WM_INPUT）→ 处理线程 的载荷。
 // 只拷系统包 + 入队前打好的微秒时间戳。禁止在此解析 HID、差分、写盘。
 // 字段含义与接线见 docs/InputQueue.md。
 struct RawInputPacket {

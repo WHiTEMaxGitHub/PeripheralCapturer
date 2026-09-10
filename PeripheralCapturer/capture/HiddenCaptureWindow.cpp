@@ -1,4 +1,4 @@
-#include "HiddenCaptureWindow.h"
+﻿#include "HiddenCaptureWindow.h"
 
 #include <spdlog/spdlog.h>
 
@@ -9,7 +9,7 @@ constexpr wchar_t kClassName[] = L"PC_HiddenCapture";
 LRESULT CALLBACK captureWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_INPUT:
-        // 热路径：禁止在这里 spdlog。以后只拷包入队。
+        // 热路径：拷包入队
         return 0;
     default:
         return DefWindowProcW(hwnd, msg, wParam, lParam);
