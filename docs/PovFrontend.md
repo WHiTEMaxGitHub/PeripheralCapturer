@@ -10,7 +10,7 @@ npm install
 npm run dev
 ```
 
-然后启动 C++ 程序。Debug 下 POV 打开 `http://127.0.0.1:5173`。没开 Vite 时会落到 `qrc` 里的离线提示页。
+然后启动 C++ 程序。POV 打开 `http://127.0.0.1:5173`，边框和 HUD 是 Vue 组件（`PovShell` / `PovHud`），不要在 C++ 里 `runJavaScript` 拼 DOM。没开 Vite 时落到 `qrc` 离线提示页（没有 Vue）。
 
 发布：`npm run build`，再把 `dist/` 打进资源或放到 exe 旁（尚未接进 CMake）。
 
@@ -53,6 +53,6 @@ C++ WebSocket 服务尚未实现；现在页面会显示未连接，这是预期
 - 左右扳机 → 油门 / 刹车的 **F–t 图**（纵轴为归一化开度或力，横轴为最近一段时间；点来自连续 snapshot，不是 CSS 动画假装出来的曲线）
 - 摇杆 → 二维十字/圆盘，当前位置 = 当前 `axes` 值
 
-画哪种部件由 **Profile** 决定（同一条 `key_id` 可以是条、盘或 F–t），不改码本、不改 `.bin`。F–t 若需要短时历史，只在 JS 里保留一小段 snapshot 环形缓冲；不要为此让 Native 推全量事件。
+画哪种部件由 **Profile** 决定（同一条 `key_id` 可以是条、盘或 F–t），不改码本、不改 `.bin`。F–t 若需要短时历史，只在 JS 里保留一小段 snapshot 环形缓冲；不要为此让 Native 推全量事件。以后每个控件做成独立 Vue 组件，由 Profile 组装，不要在 `index.html` 里堆 DOM。
 
 装饰性渐变填充（背景、条的配色）可以有；禁止的是**会改变「现在算不算按下 / 轴在哪」的过渡动画**。

@@ -1,0 +1,11 @@
+/* WebView2 首帧：在 Vue mount 前就要透明，否则会闪一块底色。 */
+html,
+body,
+#app {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+  pointer-events: none;
+}
