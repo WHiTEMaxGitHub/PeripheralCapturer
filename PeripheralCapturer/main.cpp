@@ -6,6 +6,7 @@
 #include "storage/Database.h"
 
 #include <QApplication>
+#include <QByteArray>
 #include <QCoreApplication>
 #include <QDir>
 #include <QtWebView/qtwebviewfunctions.h>
@@ -13,10 +14,14 @@
 #include <spdlog/spdlog.h>
 
 int main(int argc, char* argv[]) {
+    // 必须在创建 WebView2 控制器之前：A=00 全透明，否则浮层是不透明黑/白底。
+    qputenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", QByteArrayLiteral("00FFFFFF"));
     QtWebView::initialize();
     QApplication app(argc, argv);
     initLogger();
     spdlog::info("[app] init starting");
+    spdlog::debug("[pov] env WEBVIEW2_DEFAULT_BACKGROUND_COLOR={}",
+                  qgetenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR").constData());
     Timer::init();
 
     Database database;

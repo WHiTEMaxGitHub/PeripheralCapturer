@@ -31,7 +31,7 @@ add_executable (PeripheralCapturer
     storage/Database.cpp
 )
 
-target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog Xinput)
+target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog Xinput dwmapi)
 target_include_directories(PeripheralCapturer PRIVATE "${SPDLOG_INCLUDE_DIR}")
 
 if (WIN32)

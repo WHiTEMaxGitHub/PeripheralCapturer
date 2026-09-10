@@ -2,7 +2,8 @@
 
 #include <QtWebView/QWebView>
 
-// POV：独立置顶网页浮层（Windows = WebView2）。不要作为配置窗的子 HWND。
+// POV：独立置顶 WebView2 壳。画面由 Vue 组件画；C++ 只做置顶和点击穿透。
+// Vite 失败时用 loadHtml 读 qrc 提示页（不能 Navigate qrc:）。
 class PovWindow : public QWebView {
     Q_OBJECT
 
@@ -17,6 +18,8 @@ protected:
 
 private:
     void applyClickThrough();
+    void loadOfflineHtml();
 
     bool clickThrough_ = true;
+    bool loadedOfflineHtml_ = false;
 };
