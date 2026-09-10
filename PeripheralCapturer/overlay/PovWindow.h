@@ -3,6 +3,7 @@
 #include <QtWebView/QWebView>
 
 // POV：独立置顶网页浮层（Windows = WebView2）。不要作为配置窗的子 HWND。
+class PovWindow : public QWebView {
     Q_OBJECT
 
 public:
