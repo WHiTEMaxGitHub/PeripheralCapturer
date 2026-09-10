@@ -3,8 +3,11 @@
 #include "capture/HiddenCaptureWindow.h"
 #include "utils/Logger.h"
 #include "Input/Timer.h"
+#include "storage/Database.h"
 
 #include <QApplication>
+#include <QCoreApplication>
+#include <QDir>
 #include <QtWebView/qtwebviewfunctions.h>
 
 #include <spdlog/spdlog.h>
@@ -16,10 +19,20 @@ int main(int argc, char* argv[]) {
     spdlog::info("[app] init starting");
     Timer::init();
 
+    Database database;
+    const QString dbPath =
+        QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("data.db"));
+    if (!database.open(dbPath)) {
+        spdlog::critical("[app] database init failed, abort");
+        shutdownLogger();
+        return 1;
+    }
+
     // 三扇窗：捕获（不可见）→ 配置 → POV，互不嵌套。
     HiddenCaptureWindow capture;
     if (!capture.create()) {
         spdlog::critical("[app] capture window init failed, abort");
+        database.close();
         shutdownLogger();
         return 1;
     }
@@ -37,6 +50,7 @@ int main(int argc, char* argv[]) {
     const int code = app.exec();
 
     capture.destroy();
+    database.close();
     if (code != 0) {
         spdlog::error("[app] exiting code={}", code);
     } else {

@@ -184,7 +184,7 @@ Xbox 类：路径含 `IG_` 的 HID 默认交给 XInput，Raw HID 忽略，避免
 
 **Timer**：QPC 微秒、`sequence`、按本场 fps 算 `frameIndex`。见 [时钟](Timer.md)。
 
-**Recorder**：append-only 二进制；SQLite 只记会话行和 log 路径。Marker、控制热键完整触发时不写入按键流。
+**Recorder**：append-only 二进制事件流。SQLite 存编码表（`key_codes` 的原生码映射、本场 `session_keys` / `session_axes` 下标）和会话行 / log 路径，用来查表解码，不逐条存事件。Marker、控制热键完整触发时不写入按键流。
 
 **Storage**：码本用户可注册（见数据库文档）。不存 Profile。
 

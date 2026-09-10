@@ -26,9 +26,9 @@
 
 ### 2. 录制事实源（v0.3 前半）
 
-- [ ] 开录时冻结 `sessions.fps` 与 `recording_config_snapshot`
+- [x] SQLite 框架：`storage/Database` 建表、builtin 码本、`beginRecording` / `finishRecording` / marker / 绑码（事件仍走二进制 log，热路径不 INSERT）
+- [ ] 开录时冻结 `sessions.fps` 与 `recording_config_snapshot`（API 已有，等 Recorder / 热键接上）
 - [ ] Recorder 订阅总线（`Block`，含 MouseMove），append-only 二进制 log
-- [ ] SQLite：`sessions` 一行 + log 路径；码本表按 [DatabaseDesign](DatabaseDesign.md) 建起来
 - [ ] 控制热键在 publish 前拦掉，不进按键流
 
 ### 3. POV 真能画（v0.3 后半）

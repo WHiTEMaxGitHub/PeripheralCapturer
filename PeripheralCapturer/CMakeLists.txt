@@ -27,6 +27,8 @@ add_executable (PeripheralCapturer
     Input/InputEventBus.h
     Input/InputEventBus.cpp
     Input/QueuePresets.h
+    storage/Database.h
+    storage/Database.cpp
 )
 
 target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog Xinput)
