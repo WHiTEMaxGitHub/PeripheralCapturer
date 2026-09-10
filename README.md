@@ -4,7 +4,7 @@
 
 录制保存全量 **InputEvent**（微秒时间戳，再按本场抓取帧率归到 `frameIndex`）。浮层只画降频快照。导出帧率在 Profile 里单独配。按键编码和会话列表在 SQLite；颜色、布局用可手改 JSON。
 
-工程保持 Visual Studio CMake：顶层配置 + `PeripheralCapturer/` 放源码。日常用 **x64-debug / x64-release**。详细设计：
+工程保持 Visual Studio CMake：顶层配置 + `PeripheralCapturer/` 放源码。日常用 **x64-debug / x64-release**。给代理/协作者的代码规范：[AGENTS.md](AGENTS.md)。详细设计：
 
 - [架构设计](docs/ArchitectureDesign.md)
 - [数据库设计](docs/DatabaseDesign.md)

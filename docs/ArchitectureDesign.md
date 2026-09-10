@@ -117,7 +117,7 @@ POV：Vue（Vite）
 
 POV 窗口：`FramelessWindowHint | Tool | WindowStaysOnTopHint`，`WA_TranslucentBackground`。默认鼠标穿透（`WS_EX_LAYERED | WS_EX_TRANSPARENT`），热键在「可点 / 穿透」间切换，避免盖住配置窗也点不到。
 
-WebView **不要**消费全量 InputEvent。JS 缓存最新快照，用 `requestAnimationFrame` 画。
+WebView **不要**消费全量 InputEvent。JS 缓存最新快照，用 `requestAnimationFrame` 画。数字键外观跟快照瞬时对齐，不要用会带偏绘制状态机的按下渐变/缓动。线性轴可按 Profile 画成条、摇杆盘或 F–t（如左右扳机当油门/刹车）；详见 [POV 前端](PovFrontend.md)。
 
 WebSocket 只绑 `127.0.0.1`，带随机 token；控制面 request/response，数据面可丢旧帧。不要给前端任意文件/进程能力。
 
