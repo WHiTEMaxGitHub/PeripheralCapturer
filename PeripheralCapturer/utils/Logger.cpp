@@ -48,9 +48,12 @@ void initLogger() {
     logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
 #ifdef NDEBUG
     logger->set_level(spdlog::level::info);
+    console->set_level(spdlog::level::info);
+    file->set_level(spdlog::level::info);
 #else
     logger->set_level(spdlog::level::debug);
     console->set_level(spdlog::level::debug);
+    file->set_level(spdlog::level::debug);
 #endif
     logger->flush_on(spdlog::level::warn);
 
