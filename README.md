@@ -1,6 +1,6 @@
 # PeripheralCapturer
 
-**仅 Windows。** Native Core（C++ / Raw Input / XInput）采集输入，Qt WebView 做桌面浮层，本机 WebSocket 连接两边。
+**仅 Windows。** 三个窗口：配置（Widgets）、POV（WebView2 + Vue）、隐藏捕获窗（`HWND_MESSAGE`，收 Raw Input）。Native 用本机 WebSocket 只给 POV 推快照。
 
 录制保存全量 **InputEvent**（微秒时间戳，再按本场抓取帧率归到 `frameIndex`）。浮层只画降频快照。导出帧率在 Profile 里单独配。按键编码和会话列表在 SQLite；颜色、布局用可手改 JSON。
 
@@ -11,7 +11,8 @@
 - [InputEvent 事实源](docs/InputEvent.md)
 - [设备注册表](docs/DeviceRegistry.md)
 - [时钟 Timer](docs/Timer.md)
-- [输入队列与事件总线](docs/InputQueue.md)
+- [POV 前端（Vue）](docs/PovFrontend.md)
+- [待办 TODO](docs/TODO.md)
 
 ## 思路一句话
 
@@ -27,7 +28,7 @@
 | --- | --- |
 | 语言 | C++20 |
 | 配置 / 录制库 | Qt 6 Widgets |
-| 浮层 | QWebEngineView + 本机 WebSocket |
+| 浮层 POV | Qt WebView（`QWebView` / WebView2）+ 本机 WebSocket |
 | 采集 | Raw Input（`RIDEV_INPUTSINK`）+ XInput |
 | 热路径落盘 | 二进制 append-only log |
 | 码本 / 会话 | SQLite |

@@ -4,7 +4,7 @@
 
 形态对齐 Tauri：**C++ Native Core** 负责系统能力，**Qt WebView 浮层**负责渲染，两者用 **本机 WebSocket** 解耦。Raw Input / XInput 负责高精度采集，WebView 只消费降频快照。
 
-配套文档：[数据库设计](DatabaseDesign.md)、[InputEvent](InputEvent.md)、[设备注册表](DeviceRegistry.md)、[时钟](Timer.md)、[输入队列与事件总线](InputQueue.md)、[README](../README.md)。
+配套文档：[数据库设计](DatabaseDesign.md)、[InputEvent](InputEvent.md)、[设备注册表](DeviceRegistry.md)、[时钟](Timer.md)、[输入队列与事件总线](InputQueue.md)、[POV 前端](PovFrontend.md)、[待办](TODO.md)、[README](../README.md)。
 
 ## 目标
 
@@ -31,7 +31,7 @@ Usage 注册建议同时覆盖 Desktop 页：`0x02` 鼠标、`0x06` 键盘、`0x
 | --- | --- |
 | 语言 | C++20 |
 | GUI | Qt 6 Widgets（配置窗、录制库） |
-| 浮层 | 无边框置顶透明窗口 + QWebEngineView |
+| 浮层 | 无边框置顶透明窗口 + Qt WebView（**POV**，Windows 为 WebView2） |
 | Native ↔ Web | 本机 WebSocket（控制面 RPC + 数据面快照）；QWebChannel 仅作备选 |
 | 录制热路径 | 二进制 append-only log |
 | 会话 / 码本 | SQLite |
@@ -72,21 +72,29 @@ PeripheralCapturer/                 # 仓库根
 │   └── DatabaseDesign.md
 ├── PeripheralCapturer/
 │   ├── main.cpp
-│   ├── Layout/                     # 配置窗 / 录制库
-│   ├── capture/                    # Raw Input 隐藏窗口、XInput、路由
-│   ├── core/                       # InputEvent、队列、时钟
-│   ├── recorder/                   # 二进制 log
-│   ├── overlay/                    # 浮层窗口、WebSocket server
-│   ├── storage/                    # SQLite 码本与会话
-│   ├── config/
-│   ├── web/                        # 浮层前端
+│   ├── Layout/                     # 配置窗
+│   ├── overlay/                    # POV
+│   ├── capture/                    # 隐藏捕获窗
+│   ├── web/                        # POV 前端
 │   └── utils/                      # Logger
 └── out/
 ```
 
 构建输出在 `out/build/<preset>/`。
 
-## Native Core + 浮层
+## 三扇窗口
+
+进程里固定三扇原生窗，互不嵌套：
+
+| 窗口 | 类 | 看得见？ | 职责 |
+| --- | --- | --- | --- |
+| **配置** | `MainWindow`（Qt Widgets） | 是 | 设备 / 码本 / Profile / 录制库 / 日志 |
+| **POV** | `PovWindow`（`QWebView` + Vue） | 是（浮层） | 只画降频快照，不采集 |
+| **捕获** | `HiddenCaptureWindow`（`HWND_MESSAGE`，0×0） | 否 | `WM_INPUT` 目标窗；只拷包入队 |
+
+POV 不是配置窗的子控件，捕获窗也不是配置窗的 `winId()`。捕获窗用 `HWND_MESSAGE`，没有客户区、不进任务栏。
+
+**配置窗**管码本 / Profile / 录制库。**POV** 开发期加载 Vite `http://127.0.0.1:5173`，发布期加载打包结果；和 Native 用本机 WebSocket，不用 QWebChannel。**捕获窗**以后 `RegisterRawInputDevices`，`RIDEV_INPUTSINK`，不要 `RIDEV_NOLEGACY`。
 
 ```text
 HiddenRawInputWindow
@@ -101,13 +109,13 @@ InputEventBus
   ├── LocalWebSocket    推快照、收命令
   └── DeviceRouter      XInput 优先，HID 侧过滤 IG_
   ↓
-Qt Overlay：QWebEngineView
+POV：Vue（Vite）
   开发期 http://127.0.0.1:5173
-  发布期 qrc:/web/index.html
+  发布期 打包后的 dist / qrc
   页面 ws://127.0.0.1:<port>?token=...
 ```
 
-浮层窗口：`FramelessWindowHint | Tool | WindowStaysOnTopHint`，`WA_TranslucentBackground`。穿透用 `WS_EX_LAYERED | WS_EX_TRANSPARENT`，需热键在「可点 / 穿透」间切换，避免配置按钮也点不到。
+POV 窗口：`FramelessWindowHint | Tool | WindowStaysOnTopHint`，`WA_TranslucentBackground`。默认鼠标穿透（`WS_EX_LAYERED | WS_EX_TRANSPARENT`），热键在「可点 / 穿透」间切换，避免盖住配置窗也点不到。
 
 WebView **不要**消费全量 InputEvent。JS 缓存最新快照，用 `requestAnimationFrame` 画。
 
@@ -257,7 +265,7 @@ cmake --preset x64-debug
 cmake --build --preset x64-debug
 ```
 
-依赖：Qt6 Core / Widgets / WebEngine / Sql、spdlog、hid、xinput。C++20。`windeployqt` 打包。
+依赖：Qt6 Core / Widgets / WebView / Sql、spdlog、hid、xinput。C++20。`windeployqt` 打包。
 
 ## 版本计划
 

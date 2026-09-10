@@ -4,12 +4,12 @@
 
 源文件：
 
-| 文件 | 角色 |
-| --- | --- |
-| `RawInputPacket.h` | 捕获线程 → 处理线程的 **系统包** |
-| `BoundedQueue.h` | 有界、线程安全的通用队列（包和事件都用） |
+| 文件                         | 角色                            |
+| -------------------------- | ----------------------------- |
+| `RawInputPacket.h`         | 捕获线程 → 处理线程的 **系统包**          |
+| `BoundedQueue.h`           | 有界、线程安全的通用队列（包和事件都用）          |
 | `InputEventBus.h` / `.cpp` | 处理线程把 **InputEvent** 扇出给多个订阅者 |
-| `QueuePresets.h` | 容量、满员策略、是否收 MouseMove 的现成配方 |
+| `QueuePresets.h`           | 容量、满员策略、是否收 MouseMove 的现成配方   |
 
 ---
 
@@ -24,22 +24,22 @@
 │ 捕获线程（隐藏 HWND 的消息循环）                                  │
 │   WM_INPUT → GetRawInputData → Timer::nowUs()                   │
 │            → RawInputPacket → packets.tryPush()                 │
-│   禁止：HID 解析、差分、写文件、WebSocket、逐条 spdlog            │
+│   禁止：HID 解析、差分、写文件、WebSocket、逐条 spdlog             │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ BoundedQueue<RawInputPacket>
                            │ 满员：DropOldest；只 tryPush，绝不 wait
                            ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ 处理线程                                                         │
-│   packets.pop()                                                  │
-│   DeviceRegistry.getOrCreateRawDevice(hDevice)                   │
+│   packets.pop()                                                 │
+│   DeviceRegistry.getOrCreateRawDevice(hDevice)                  │
 │   shouldIgnoreRawHid？是 → 丢弃（Xbox 垫走 XInput，避免记两遍）   │
-│   与该设备上一份状态差分                                         │
-│   无变化 → 不发事件（连发 KeyDown、未动的轴、dx=dy=0）          │
+│   与该设备上一份状态差分                                          │
+│   无变化 → 不发事件（连发 KeyDown、未动的轴、dx=dy=0）             │
 │   有变化 → Timer::MakeBaseEvent() 填 sequence/时间/frameIndex    │
-│          → 填 deviceID / control / 数值                         │
-│          → InputEventBus::publish(e)                             │
-│   XInput 约 250Hz 轮询也在本线程（或同级线程）差分后 publish     │
+│          → 填 deviceID / control / 数值                          │
+│          → InputEventBus::publish(e)                            │
+│   XInput 约 250Hz 轮询也在本线程（或同级线程）差分后 publish       │
 └──────────────────────────┬──────────────────────────────────────┘
                            │ 总线：每个订阅者一条 BoundedQueue<InputEvent>
                            ▼
@@ -53,14 +53,14 @@
 
 对照关系：
 
-| 概念 | 对应代码 | 不是什么 |
-| --- | --- | --- |
-| 系统包 | `RawInputPacket` | 还不是业务事件 |
-| 包队列 | `BoundedQueue<RawInputPacket>` | 不要直接给录制/浮层 |
-| 业务事件 | `InputEvent` | 不是 USB 帧、不是轮询快照 |
-| 事件总线 | `InputEventBus` | 不是网络、不是 Qt 信号、不是万能 MessageBus |
-| 设备身份 | `DeviceRegistry` | 在 **publish 之前**，不是总线订阅者 |
-| 后端选择 | `shouldIgnoreRawHid` / 日后 DeviceRouter | 同样在 publish 之前 |
+| 概念   | 对应代码                                   | 不是什么                          |
+| ---- | -------------------------------------- | ----------------------------- |
+| 系统包  | `RawInputPacket`                       | 还不是业务事件                       |
+| 包队列  | `BoundedQueue<RawInputPacket>`         | 不要直接给录制/浮层                    |
+| 业务事件 | `InputEvent`                           | 不是 USB 帧、不是轮询快照               |
+| 事件总线 | `InputEventBus`                        | 不是网络、不是 Qt 信号、不是万能 MessageBus |
+| 设备身份 | `DeviceRegistry`                       | 在 **publish 之前**，不是总线订阅者      |
+| 后端选择 | `shouldIgnoreRawHid` / 日后 DeviceRouter | 同样在 publish 之前                |
 
 **时钟只给事件打戳和算 `frameIndex`，不决定「这一帧有没有东西可写」。** 没有状态变化就没有 `InputEvent`，录制 log 也就不写。派生的「第 N 帧 bitset」可以停录后从 log 扫出来，或在内存里按 `frameIndex` 归并。
 
@@ -95,21 +95,21 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 ### 预处理宏
 
-| 符号 | 作用 |
-| --- | --- |
-| `WIN32_LEAN_AND_MEAN` | 少包含 GDI/OLE 等，加快编译、减少宏污染。 |
-| `NOMINMAX` | 禁止 Windows 的 `min`/`max` 宏，避免和 `std::min`、Qt 冲突。 |
+| 符号                    | 作用                                               |
+| --------------------- | ------------------------------------------------ |
+| `WIN32_LEAN_AND_MEAN` | 少包含 GDI/OLE 等，加快编译、减少宏污染。                        |
+| `NOMINMAX`            | 禁止 Windows 的 `min`/`max` 宏，避免和 `std::min`、Qt 冲突。 |
 
 必须在 `#include <Windows.h>` **之前** 定义。
 
 ### 字段
 
-| 成员 | 类型 | 作用 |
-| --- | --- | --- |
-| `timestampUs` | `int64_t` | 相对 `Timer` 起点的微秒。必须在 **入队前** 用 QPC 算好。若等处理线程弹出再计时，队列等待会被算进「按键发生时刻」，回放会偏。 |
-| `hDevice` | `HANDLE` | 本次插入后内核给这台设备的运行期句柄。处理线程拿去 `DeviceRegistry` 换成 `mouse_1` 这类 `deviceID`。禁止 `CloseHandle`，禁止写入 JSON/SQLite。拔出后句柄数值可能被复用，注册表要删行。 |
-| `dwType` | `DWORD` | `GetRawInputData` 里 `RAWINPUTHEADER.dwType`：`RIM_TYPEKEYBOARD` / `RIM_TYPEMOUSE` / `RIM_TYPEHID`。决定按哪套结构解释 `bytes`。与 `InputDeviceType` 粗类型对齐，但这里仍是 Windows 原值。 |
-| `bytes` | `vector<uint8_t>` | 整包 `RAWINPUT` 的字节拷贝（含头）。键盘是 `RAWKEYBOARD`，鼠标是 `RAWMOUSE`，HID 是 report。WndProc 不知道按钮/轴含义；处理线程按 `dwType` 解析。 |
+| 成员            | 类型                | 作用                                                                                                                                                             |
+| ------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `timestampUs` | `int64_t`         | 相对 `Timer` 起点的微秒。必须在 **入队前** 用 QPC 算好。若等处理线程弹出再计时，队列等待会被算进「按键发生时刻」，回放会偏。                                                                                       |
+| `hDevice`     | `HANDLE`          | 本次插入后内核给这台设备的运行期句柄。处理线程拿去 `DeviceRegistry` 换成 `mouse_1` 这类 `deviceID`。禁止 `CloseHandle`，禁止写入 JSON/SQLite。拔出后句柄数值可能被复用，注册表要删行。                                   |
+| `dwType`      | `DWORD`           | `GetRawInputData` 里 `RAWINPUTHEADER.dwType`：`RIM_TYPEKEYBOARD` / `RIM_TYPEMOUSE` / `RIM_TYPEHID`。决定按哪套结构解释 `bytes`。与 `InputDeviceType` 粗类型对齐，但这里仍是 Windows 原值。 |
+| `bytes`       | `vector<uint8_t>` | 整包 `RAWINPUT` 的字节拷贝（含头）。键盘是 `RAWKEYBOARD`，鼠标是 `RAWMOUSE`，HID 是 report。WndProc 不知道按钮/轴含义；处理线程按 `dwType` 解析。                                                     |
 
 没有方法。它是可移动的值类型，`tryPush(std::move(pkt))` 避免再拷 `vector`。
 
@@ -127,11 +127,11 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 ### `QueueOverflow`（创建时定死）
 
-| 枚举 | 满员时 | 用在哪 |
-| --- | --- | --- |
-| `Block` | 生产者等到有空位 | **仅录制事件队列**。WndProc 禁用。 |
+| 枚举           | 满员时           | 用在哪                                    |
+| ------------ | ------------- | -------------------------------------- |
+| `Block`      | 生产者等到有空位      | **仅录制事件队列**。WndProc 禁用。                |
 | `DropOldest` | 丢掉队头（最旧），写入新的 | **包队列**、浮层、绑定监听。保证捕获线程立刻返回，或界面总看到较新状态。 |
-| `DropNewest` | 拒绝本条 | 几乎不用。 |
+| `DropNewest` | 拒绝本条          | 几乎不用。                                  |
 
 反压连锁（刻意如此）：
 
@@ -143,23 +143,23 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 `BoundedQueue(capacity, overflow)`
 
-| 参数 | 作用 |
-| --- | --- |
+| 参数         | 作用                             |
+| ---------- | ------------------------------ |
 | `capacity` | 最多存放条数。`0` 会被改成 `1`，避免无意义的空队列。 |
-| `overflow` | 满员策略，存进 `overflow_`，之后不变。 |
+| `overflow` | 满员策略，存进 `overflow_`，之后不变。      |
 
 ### 公开方法
 
-| 方法 | 阻塞？ | 作用 |
-| --- | --- | --- |
-| `close()` | 否 | 置 `closed_`，叫醒所有等在 `pop`/`push` 上的线程。之后 `push`/`tryPush` 失败；队列里剩余元素仍可取出。用于停录、退出。 |
-| `closed()` | 否 | 是否已关闭。 |
-| `size()` | 否 | 当前条数（调试、状态栏）。热路径不必每包都问。 |
-| `dropped()` | 否 | 因满员丢掉的累计次数（`DropOldest`/`DropNewest`）。`Block` 下应为 0。用来判断处理线程是否长期跟不上鼠标。 |
-| `tryPush(item)` | **否** | 入队；满且策略为 Block 时返回 false。**WndProc 必须用这个。** |
-| `push(item)` | 仅 Block 且满时 | 入队；录制用。 |
-| `tryPop()` | 否 | 空则 `nullopt`。浮层可「有就取」。 |
-| `pop()` | 空则等待 | 有数据或 `close` 后返回。处理线程等包、录制线程等事件的主循环：`while (auto x = q.pop())`。关闭且取尽 → `nullopt` 结束循环。 |
+| 方法              | 阻塞？         | 作用                                                                                     |
+| --------------- | ----------- | -------------------------------------------------------------------------------------- |
+| `close()`       | 否           | 置 `closed_`，叫醒所有等在 `pop`/`push` 上的线程。之后 `push`/`tryPush` 失败；队列里剩余元素仍可取出。用于停录、退出。       |
+| `closed()`      | 否           | 是否已关闭。                                                                                 |
+| `size()`        | 否           | 当前条数（调试、状态栏）。热路径不必每包都问。                                                                |
+| `dropped()`     | 否           | 因满员丢掉的累计次数（`DropOldest`/`DropNewest`）。`Block` 下应为 0。用来判断处理线程是否长期跟不上鼠标。                 |
+| `tryPush(item)` | **否**       | 入队；满且策略为 Block 时返回 false。**WndProc 必须用这个。**                                            |
+| `push(item)`    | 仅 Block 且满时 | 入队；录制用。                                                                                |
+| `tryPop()`      | 否           | 空则 `nullopt`。浮层可「有就取」。                                                                 |
+| `pop()`         | 空则等待        | 有数据或 `close` 后返回。处理线程等包、录制线程等事件的主循环：`while (auto x = q.pop())`。关闭且取尽 → `nullopt` 结束循环。 |
 
 返回 `bool` 的入队：`true` 表示进队成功；`false` 表示已关闭、或 DropNewest 丢了本条、或 tryPush 遇上 Block 已满。
 
@@ -180,16 +180,16 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 ### 私有成员
 
-| 成员 | 作用 |
-| --- | --- |
-| `capacity_` | 上限。有界才能在 1000Hz 下不把 RAM 吃光。 |
-| `overflow_` | 满员策略。 |
-| `mutex_` | 保护 `items_` / `closed_` / `dropped_`。`mutable` 是为了 `size()` 等 const 查询也能加锁。 |
-| `notEmpty_` | 条件变量：「从空变为非空」时叫醒 `pop`。 |
-| `notFull_` | 「从满变为有空位」时叫醒 Block 的 `push`。必须两个 CV：一个表示「有货」，一个表示「有坑」，合成一个会把错误的一方空叫醒。 |
-| `items_` | `deque<T>`。要从队头丢最旧、从队尾入新，双端队列合适。 |
-| `closed_` | 关闭旗标。 |
-| `dropped_` | 满员丢弃计数。 |
+| 成员          | 作用                                                                          |
+| ----------- | --------------------------------------------------------------------------- |
+| `capacity_` | 上限。有界才能在 1000Hz 下不把 RAM 吃光。                                                 |
+| `overflow_` | 满员策略。                                                                       |
+| `mutex_`    | 保护 `items_` / `closed_` / `dropped_`。`mutable` 是为了 `size()` 等 const 查询也能加锁。 |
+| `notEmpty_` | 条件变量：「从空变为非空」时叫醒 `pop`。                                                     |
+| `notFull_`  | 「从满变为有空位」时叫醒 Block 的 `push`。必须两个 CV：一个表示「有货」，一个表示「有坑」，合成一个会把错误的一方空叫醒。       |
+| `items_`    | `deque<T>`。要从队头丢最旧、从队尾入新，双端队列合适。                                            |
+| `closed_`   | 关闭旗标。                                                                       |
+| `dropped_`  | 满员丢弃计数。                                                                     |
 
 热路径不要 `spdlog`。要看丢包看 `dropped()`。
 
@@ -209,12 +209,12 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 创建一条订阅队列时的配方。
 
-| 字段 | 默认 | 作用 |
-| --- | --- | --- |
-| `name` | 空 | 调试标签（`recorder` / `overlay` / `bind`）。运行不分支这个字符串。 |
-| `capacity` | 4096 | 该订阅者专用队列长度。 |
-| `overflow` | `DropOldest` | 该队列满员策略。录制必须改成 `Block`。 |
-| `acceptMouseMove` | `true` | `false` 时 `publish` 遇到 `InputEventType::MouseMove` 直接跳过，事件不进这条队列。浮层、绑键用 `false`；录制必须 `true`，否则位移事实源丢失。 |
+| 字段                | 默认           | 作用                                                                                                     |
+| ----------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| `name`            | 空            | 调试标签（`recorder` / `overlay` / `bind`）。运行不分支这个字符串。                                                      |
+| `capacity`        | 4096         | 该订阅者专用队列长度。                                                                                            |
+| `overflow`        | `DropOldest` | 该队列满员策略。录制必须改成 `Block`。                                                                                |
+| `acceptMouseMove` | `true`       | `false` 时 `publish` 遇到 `InputEventType::MouseMove` 直接跳过，事件不进这条队列。浮层、绑键用 `false`；录制必须 `true`，否则位移事实源丢失。 |
 
 ### 公开方法
 
@@ -240,12 +240,12 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 ### 私有
 
-| 成员 | 作用 |
-| --- | --- |
+| 成员                     | 作用                                |
+| ---------------------- | --------------------------------- |
 | `Subscription.options` | 仍要用来过滤 MouseMove、选择 push/tryPush。 |
-| `Subscription.queue` | 与订阅者共享的那条事件队列。 |
-| `mutex_` | **只保护订阅表**（谁在听），不保护队列内部（队列自己有锁）。 |
-| `subscriptions_` | 当前听众列表。 |
+| `Subscription.queue`   | 与订阅者共享的那条事件队列。                    |
+| `mutex_`               | **只保护订阅表**（谁在听），不保护队列内部（队列自己有锁）。  |
+| `subscriptions_`       | 当前听众列表。                           |
 
 ---
 
@@ -253,12 +253,12 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 避免各处手写 4096 却把包队列写成 Block。
 
-| 符号 | 含义 |
-| --- | --- |
-| `kRawPacketQueueCapacity` | 包队列长度 **4096**。创建：`BoundedQueue<RawInputPacket> packets(kRawPacketQueueCapacity, QueueOverflow::DropOldest);` 策略必须是 DropOldest，预设里只定容量，防止有人抄成 Block。 |
-| `recorderSubscribeOptions()` | 名 `recorder`，容量 8192，**Block**，**收** MouseMove。事实源。 |
-| `overlaySubscribeOptions()` | 容量 64，DropOldest，**不收** MouseMove。给快照聚合用；真正画 UI 还要再降频。 |
-| `bindListenSubscribeOptions()` | 容量 32，DropOldest，不收 Move。码本监听「下一个非移动事件」。 |
+| 符号                             | 含义                                                                                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kRawPacketQueueCapacity`      | 包队列长度 **4096**。创建：`BoundedQueue<RawInputPacket> packets(kRawPacketQueueCapacity, QueueOverflow::DropOldest);` 策略必须是 DropOldest，预设里只定容量，防止有人抄成 Block。 |
+| `recorderSubscribeOptions()`   | 名 `recorder`，容量 8192，**Block**，**收** MouseMove。事实源。                                                                                                  |
+| `overlaySubscribeOptions()`    | 容量 64，DropOldest，**不收** MouseMove。给快照聚合用；真正画 UI 还要再降频。                                                                                               |
+| `bindListenSubscribeOptions()` | 容量 32，DropOldest，不收 Move。码本监听「下一个非移动事件」。                                                                                                             |
 
 数字可调；**录制 Block、捕获 tryPush、浮层可丢** 三条不要改。
 
@@ -335,17 +335,17 @@ while (auto e = logQ->pop()) {
 
 ## 9. 常见误用
 
-| 误用 | 后果 |
-| --- | --- |
-| WndProc 里 `push` 而不是 `tryPush` | 消息循环睡着，UI/鼠标假死 |
-| 包队列用 `Block` | 同上 |
-| 录制队列 `DropOldest` | 丢 KeyDown，回放缺按键 |
-| overlay `acceptMouseMove = true` 且容量很小 | 全是 Move，按键被挤掉 |
-| 把 `hDevice` 当 `deviceID` 写进 log | 拔插后对不上设备 |
-| 在 WndProc 调 `GetRawInputDeviceInfo` / HidP | 捕获线程变重 |
-| 处理线程 `publish` 里直接写文件、发 WebSocket | 总线失去意义，卡差分 |
-| 把 DeviceRouter 当总线订阅者 | 重复事件已经生成了，过滤太晚 |
-| 用 60Hz 定时器往总线灌「当前全状态」 | 违背「事件 = 状态变化」 |
+| 误用                                         | 后果              |
+| ------------------------------------------ | --------------- |
+| WndProc 里 `push` 而不是 `tryPush`             | 消息循环睡着，UI/鼠标假死  |
+| 包队列用 `Block`                               | 同上              |
+| 录制队列 `DropOldest`                          | 丢 KeyDown，回放缺按键 |
+| overlay `acceptMouseMove = true` 且容量很小     | 全是 Move，按键被挤掉   |
+| 把 `hDevice` 当 `deviceID` 写进 log            | 拔插后对不上设备        |
+| 在 WndProc 调 `GetRawInputDeviceInfo` / HidP | 捕获线程变重          |
+| 处理线程 `publish` 里直接写文件、发 WebSocket          | 总线失去意义，卡差分      |
+| 把 DeviceRouter 当总线订阅者                      | 重复事件已经生成了，过滤太晚  |
+| 用 60Hz 定时器往总线灌「当前全状态」                      | 违背「事件 = 状态变化」   |
 
 ---
 
