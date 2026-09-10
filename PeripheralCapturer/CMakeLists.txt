@@ -15,6 +15,8 @@ add_executable (PeripheralCapturer
     Input/Timer.cpp
     Input/DeviceRegistry.h
     Input/DeviceRegistry.cpp
+    Input/GamepadProbe.h
+    Input/GamepadProbe.cpp
     Input/RawInputPacket.h
     Input/BoundedQueue.h
     Input/InputEventBus.h
@@ -22,7 +24,7 @@ add_executable (PeripheralCapturer
     Input/QueuePresets.h
 )
 
-target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog)
+target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog Xinput)
 target_include_directories(PeripheralCapturer PRIVATE "${SPDLOG_INCLUDE_DIR}")
 
 if (WIN32)

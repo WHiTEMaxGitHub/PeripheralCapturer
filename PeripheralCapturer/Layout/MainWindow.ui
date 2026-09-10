@@ -10,13 +10,19 @@
     <height>720</height>
    </rect>
   </property>
+  <property name="minimumSize">
+   <size>
+    <width>960</width>
+    <height>600</height>
+   </size>
+  </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>Peripheral Capturer</string>
   </property>
   <widget class="QWidget" name="centralWidget">
-   <layout class="QHBoxLayout" name="horizontalLayout" stretch="1,3">
-    <property name="sizeConstraint">
-     <enum>QLayout::SizeConstraint::SetNoConstraint</enum>
+   <layout class="QHBoxLayout" name="rootLayout" stretch="0,1">
+    <property name="spacing">
+     <number>0</number>
     </property>
     <property name="leftMargin">
      <number>0</number>
@@ -32,88 +38,260 @@
     </property>
     <item>
      <widget class="QListWidget" name="LeftSideBar">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
-        <horstretch>0</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
       <property name="minimumSize">
        <size>
-        <width>180</width>
+        <width>200</width>
         <height>0</height>
        </size>
       </property>
       <property name="maximumSize">
        <size>
-        <width>240</width>
+        <width>220</width>
         <height>16777215</height>
        </size>
       </property>
+      <property name="focusPolicy">
+       <enum>Qt::FocusPolicy::NoFocus</enum>
+      </property>
+      <property name="frameShape">
+       <enum>QFrame::Shape::NoFrame</enum>
+      </property>
+      <property name="horizontalScrollBarPolicy">
+       <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+      </property>
+      <item>
+       <property name="text">
+        <string>设备</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>码本</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>Profile</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>录制库</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>日志</string>
+       </property>
+      </item>
      </widget>
     </item>
     <item>
      <widget class="QStackedWidget" name="stackedWidget">
-      <property name="sizePolicy">
-       <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-        <horstretch>1</horstretch>
-        <verstretch>0</verstretch>
-       </sizepolicy>
-      </property>
       <property name="currentIndex">
-       <number>2</number>
+       <number>0</number>
       </property>
-      <widget class="QWidget" name="pageTest"/>
-      <widget class="QWidget" name="pageMain">
-       <widget class="QLabel" name="label_2">
-        <property name="geometry">
-         <rect>
-          <x>150</x>
-          <y>120</y>
-          <width>54</width>
-          <height>16</height>
-         </rect>
+      <widget class="QWidget" name="pageDevices">
+       <layout class="QVBoxLayout" name="layoutDevices">
+        <property name="leftMargin">
+         <number>24</number>
         </property>
-        <property name="text">
-         <string>Main</string>
+        <property name="topMargin">
+         <number>20</number>
         </property>
-       </widget>
+        <property name="rightMargin">
+         <number>24</number>
+        </property>
+        <property name="bottomMargin">
+         <number>20</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="titleDevices">
+          <property name="text">
+           <string>设备</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="hintDevices">
+          <property name="text">
+           <string>识别已连接手柄。Xbox 走 XInput 槽位；其它垫走 HID 枚举。不采集按键。</string>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QListWidget" name="deviceList"/>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="pageKeyCodes">
+       <layout class="QVBoxLayout" name="layoutKeyCodes">
+        <property name="leftMargin">
+         <number>24</number>
+        </property>
+        <property name="topMargin">
+         <number>20</number>
+        </property>
+        <property name="rightMargin">
+         <number>24</number>
+        </property>
+        <property name="bottomMargin">
+         <number>20</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="titleKeyCodes">
+          <property name="text">
+           <string>码本</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="hintKeyCodes">
+          <property name="text">
+           <string>按键与轴的编码表。用户可注册、监听绑定。尚未接入 SQLite。</string>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacerKeyCodes">
+          <property name="orientation">
+           <enum>Qt::Orientation::Vertical</enum>
+          </property>
+         </spacer>
+        </item>
+       </layout>
       </widget>
       <widget class="QWidget" name="pageProfile">
-       <widget class="QLabel" name="label_3">
-        <property name="geometry">
-         <rect>
-          <x>270</x>
-          <y>110</y>
-          <width>54</width>
-          <height>16</height>
-         </rect>
+       <layout class="QVBoxLayout" name="layoutProfile">
+        <property name="leftMargin">
+         <number>24</number>
         </property>
-        <property name="text">
-         <string>Profile</string>
+        <property name="topMargin">
+         <number>20</number>
         </property>
-       </widget>
+        <property name="rightMargin">
+         <number>24</number>
+        </property>
+        <property name="bottomMargin">
+         <number>20</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="titleProfile">
+          <property name="text">
+           <string>Profile</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="hintProfile">
+          <property name="text">
+           <string>颜色、布局、抓取/导出帧率。JSON 只管观感，不改编码。</string>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacerProfile">
+          <property name="orientation">
+           <enum>Qt::Orientation::Vertical</enum>
+          </property>
+         </spacer>
+        </item>
+       </layout>
       </widget>
-      <widget class="QWidget" name="pageRecording"/>
+      <widget class="QWidget" name="pageRecordings">
+       <layout class="QVBoxLayout" name="layoutRecordings">
+        <property name="leftMargin">
+         <number>24</number>
+        </property>
+        <property name="topMargin">
+         <number>20</number>
+        </property>
+        <property name="rightMargin">
+         <number>24</number>
+        </property>
+        <property name="bottomMargin">
+         <number>20</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="titleRecordings">
+          <property name="text">
+           <string>录制库</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="hintRecordings">
+          <property name="text">
+           <string>会话列表、检查、标签与备份。事件本体在二进制 log。</string>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacerRecordings">
+          <property name="orientation">
+           <enum>Qt::Orientation::Vertical</enum>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
       <widget class="QWidget" name="pageLog">
-       <widget class="QLabel" name="label">
-        <property name="geometry">
-         <rect>
-          <x>270</x>
-          <y>110</y>
-          <width>54</width>
-          <height>16</height>
-         </rect>
+       <layout class="QVBoxLayout" name="layoutLog">
+        <property name="leftMargin">
+         <number>24</number>
         </property>
-        <property name="text">
-         <string>Log</string>
+        <property name="topMargin">
+         <number>20</number>
         </property>
-       </widget>
+        <property name="rightMargin">
+         <number>24</number>
+        </property>
+        <property name="bottomMargin">
+         <number>20</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="titleLog">
+          <property name="text">
+           <string>日志</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="hintLog">
+          <property name="text">
+           <string>运行日志写在程序目录 log/ 下。此页以后可接 spdlog 查看器。</string>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacerLog">
+          <property name="orientation">
+           <enum>Qt::Orientation::Vertical</enum>
+          </property>
+         </spacer>
+        </item>
+       </layout>
       </widget>
      </widget>
     </item>
    </layout>
   </widget>
+  <widget class="QStatusBar" name="statusBar"/>
  </widget>
  <layoutdefault spacing="6" margin="11"/>
  <resources/>

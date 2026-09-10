@@ -4,6 +4,7 @@
 #include <Windows.h>
 #include <string>
 #include <unordered_map>
+#include <vector>
 struct DeviceInfo {
     std::string deviceID;
     std::wstring rawName;
@@ -16,6 +17,7 @@ struct DeviceInfo {
 class DeviceRegistry {
 public:
     std::string getOrCreateRawDevice(HANDLE hDevice, InputDeviceType type);
+    std::vector<DeviceInfo> snapshot() const;
 	// 获取XInput设备ID
     inline std::string getXInputDeviceID(DWORD slot) {
         return "xinput_" + std::to_string(slot);
