@@ -10,6 +10,8 @@ add_executable (PeripheralCapturer
     Layout/MainWindow.ui
     overlay/PovWindow.h
     overlay/PovWindow.cpp
+    capture/HiddenCaptureWindow.h
+    capture/HiddenCaptureWindow.cpp
     web/pov.qrc
     utils/Logger.h
     utils/Logger.cpp
