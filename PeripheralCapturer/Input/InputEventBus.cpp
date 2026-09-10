@@ -1,7 +1,28 @@
 #include "InputEventBus.h"
 
+#include <spdlog/spdlog.h>
+
+namespace {
+
+const char* overflowName(QueueOverflow overflow) {
+    switch (overflow) {
+    case QueueOverflow::Block:
+        return "block";
+    case QueueOverflow::DropOldest:
+        return "drop_oldest";
+    case QueueOverflow::DropNewest:
+        return "drop_newest";
+    }
+    return "unknown";
+}
+
+} // namespace
+
 std::shared_ptr<BoundedQueue<InputEvent>>
 InputEventBus::subscribe(EventSubscribeOptions options) {
+    spdlog::info("[bus] subscribe name={} capacity={} overflow={} mouseMove={}",
+                 options.name, options.capacity, overflowName(options.overflow),
+                 options.acceptMouseMove);
     auto queue = std::make_shared<BoundedQueue<InputEvent>>(options.capacity,
                                                             options.overflow);
     std::lock_guard lock(mutex_);
@@ -10,8 +31,6 @@ InputEventBus::subscribe(EventSubscribeOptions options) {
 }
 
 void InputEventBus::publish(const InputEvent& event) {
-    // 先拷订阅表再入队：录制 Block 时 push 可能长时间等待，
-    // 若仍握着 mutex_，其它线程无法 subscribe，本条也送不进后续订阅者。
     std::vector<Subscription> snapshot;
     {
         std::lock_guard lock(mutex_);
@@ -22,7 +41,9 @@ void InputEventBus::publish(const InputEvent& event) {
             continue;
         }
         if (sub.options.overflow == QueueOverflow::Block) {
-            sub.queue->push(event);
+            if (!sub.queue->push(event)) {
+                spdlog::warn("[bus] recorder push failed name={}", sub.options.name);
+            }
         } else {
             sub.queue->tryPush(event);
         }
@@ -31,7 +52,17 @@ void InputEventBus::publish(const InputEvent& event) {
 
 void InputEventBus::close() {
     std::lock_guard lock(mutex_);
+    spdlog::info("[bus] close subscriptions={}", subscriptions_.size());
     for (auto& sub : subscriptions_) {
+        const auto dropped = sub.queue->dropped();
+        const auto pending = sub.queue->size();
         sub.queue->close();
+        if (dropped > 0) {
+            spdlog::warn("[bus] queue '{}' dropped={} pending={}", sub.options.name,
+                         dropped, pending);
+        } else {
+            spdlog::info("[bus] queue '{}' dropped=0 pending={}", sub.options.name,
+                         pending);
+        }
     }
 }

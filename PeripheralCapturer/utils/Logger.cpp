@@ -15,7 +15,9 @@
 
 void initLogger() {
     const QString logDir = QCoreApplication::applicationDirPath() + QStringLiteral("/log");
-    QDir().mkpath(logDir);
+    if (!QDir().mkpath(logDir)) {
+        // 此时 default logger 可能还不存在，先建控制台再报错。
+    }
 
     const QString fileName = QStringLiteral("peripheral-capturer-%1.log")
                                  .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd")));
@@ -24,7 +26,16 @@ void initLogger() {
     spdlog::init_thread_pool(8192, 1);
 
     auto console = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
-    auto file = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(filePath, 5 * 1024 * 1024, 3);
+    std::shared_ptr<spdlog::sinks::rotating_file_sink_mt> file;
+    try {
+        file = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(filePath, 5 * 1024 * 1024, 3);
+    } catch (const spdlog::spdlog_ex& ex) {
+        auto fallback = std::make_shared<spdlog::async_logger>(
+            "pc", console, spdlog::thread_pool(), spdlog::async_overflow_policy::overrun_oldest);
+        spdlog::set_default_logger(fallback);
+        spdlog::critical("[log] rotating file sink failed: {}", ex.what());
+        return;
+    }
 
     std::vector<spdlog::sink_ptr> sinks{console, file};
     auto logger = std::make_shared<spdlog::async_logger>(
@@ -44,9 +55,10 @@ void initLogger() {
     logger->flush_on(spdlog::level::warn);
 
     spdlog::set_default_logger(logger);
-    spdlog::info("logger ready, file={}", filePath);
+    spdlog::info("[log] init ok file={}", filePath);
 }
 
 void shutdownLogger() {
+    spdlog::info("[log] shutdown");
     spdlog::shutdown();
 }
