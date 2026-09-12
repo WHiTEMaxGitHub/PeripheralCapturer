@@ -1,383 +1,116 @@
 # 数据库设计
 
-SQLite 存按键编码和录制库元数据。实时事件流写在会话旁的 **二进制 append-only log** 里，这才是录制事实源。颜色、布局、导出 fps 不进库，见 [架构设计](ArchitectureDesign.md)。事件字段见 [InputEvent](InputEvent.md)。
+DDL 以 [DatabaseSchema](DatabaseSchema.md) 为准（含表协作图）。颜色、布局、导出 fps 见 [架构设计](ArchitectureDesign.md)。事件字段见 [InputEvent](InputEvent.md)。
+
+一份 `data.db`，和 exe 同目录。录制本体是 `frame_data`：一行一帧，`frame` + `blob`，内存攒批写入。
 
 ## 原则
 
-1. **编码在库，且必须能由用户注册。** 码本覆盖非线性（按下/松开）和线性（轴、扳机、踏板等）。预置只是种子。
-2. **InputEvent 是事实源。** SQLite 不靠「只存帧末 bitset」代替事件流；帧表若存在，只是派生缓存。
+1. **编码在库，用户可注册。** 码本同时描述数字键和线性轴。预置只是种子。
+2. **采集出 InputEvent，落盘写帧。** Recorder 按 `frameIndex` 归并后写入 `frame_data`。一帧内 down 又 up，检查器看到的是帧末状态。
 3. **素材与皮肤分离。** 回放/导出时再选 Profile。
 4. **录制库界面是产品。** 列表、检查、改名、标签、删除、导入导出走 UI。
-5. **元数据可改，事件 log 少改。** 显示名/标签/marker 备注可改；改 JSON 颜色不影响 log。
+5. **元数据可改，帧少改。** 显示名、标签、marker 备注可改；改 JSON 颜色不影响 `frame_data`。
 
-## 表结构
+## 表怎么用
 
-### key_codes（全局码本）
+### `key_codes`
 
-本项目要录的不只是键盘鼠标那种非线性开关，还必须能录线性输入设备：手柄摇杆、扳机、方向盘、压感等连续量。码本从一开始就要能描述这两种通道，不能把轴当成「以后再加的特殊键」。
-
-同一套 `key_id` 给浮层、检查器、帧数据用。区别在 `value_kind`：
+同一套 `key_id` 给浮层、检查器和帧解码。`value_kind`：
 
 | value_kind | 含义 | 每帧存什么 | 典型来源 |
 | --- | --- | --- | --- |
-| `digital` | 非线性，只有按下/松开 | `session_keys` + `state_blob` bitset | 键盘、鼠标键、手柄面键 |
-| `analog` | 线性，连续归一化值 | `session_axes` + `axis_samples` | 摇杆轴、扳机、压感 |
+| `digital` | 按下/松开 | blob 前半 bitset | 键盘、鼠标键、手柄面键 |
+| `analog` | 归一化连续值 | blob 后半 float32 | 摇杆、扳机、鼠标 dx/dy |
 
-`range_min` / `range_max` 是编码约定，不是皮肤。常见：扳机 `0..1`，摇杆轴 `-1..1`。死区、显示条颜色放 JSON。
+`range_min` / `range_max` 是编码约定（扳机 `0..1`，摇杆 `-1..1`）。死区和颜色放 JSON。
 
-码本有三条写入路径，后两条是数据库存在的理由：
-
-| origin | 谁写入 | 典型用途 |
-| --- | --- | --- |
-| `builtin` | 首次建库种子 | WASD、常用鼠标键、通用手柄面键/轴 |
-| `capture` | 捕获遇到未知控件 | 先能录下来，用户事后可认领、改 id、改范围 |
-| `user` | 码本界面手动注册或监听绑定 | 自定义设备、冷门 HID、虚拟键、自定轴范围 |
-
-用户必须能在界面里：新增一行、填 `key_id`、选 digital/analog、绑原生码（可「按一下/拧一下」监听）、改标签和线性范围、删除未被会话引用的自定义行。预置行不能删，不能改 `key_id` / `value_kind`；标签可以改。已被 `session_keys` / `session_axes` 引用的行：禁止改 `key_id`、`value_kind`、线性范围，以免旧素材解不开。
-
-```sql
-CREATE TABLE key_codes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    key_id TEXT NOT NULL UNIQUE,
-    kind TEXT NOT NULL,
-    value_kind TEXT NOT NULL,
-    range_min REAL,
-    range_max REAL,
-    native_usage_page INTEGER,
-    native_usage INTEGER,
-    native_vk INTEGER,
-    default_label TEXT NOT NULL,
-    origin TEXT NOT NULL DEFAULT 'user',
-    notes TEXT,
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-```
-
-| 字段 | 说明 |
+| origin | 谁写入 |
 | --- | --- |
-| `key_id` | 稳定字符串，全库唯一。用户自定义须校验：非空、小写、字母数字和 `-`。`Profile.rows[].id` 只能引用已存在的值 |
-| `kind` | `keyboard` / `mouse` / `gamepad` / `other`。自定义冷门设备用 `other` |
-| `value_kind` | `digital` 或 `analog`。手柄面键是 `gamepad` + `digital`，扳机是 `gamepad` + `analog` |
-| `range_min` / `range_max` | 仅 `analog` 有意义。捕获按此归一化。用户注册轴时必填且 `min < max` |
-| `native_*` | 仅 Windows 原始码，可空（尚未绑定）。`native_vk` 为 Win32 虚拟键；Usage Page/Usage 为 Windows HID。监听绑定时写入。同一原生码不应绑两条有效记录 |
-| `default_label` | 检查器默认名；浮层显示名由 JSON 的 `label` 覆盖 |
-| `origin` | `builtin` / `capture` / `user`。升级种子只插入缺失的 builtin，不覆盖 user/capture |
-| `notes` | 用户备注，如「右侧踏板」 |
+| `builtin` | 首次建库种子 |
+| `capture` | 遇到未知控件时的占位行 |
+| `user` | 码本页注册或监听绑定 |
 
-```sql
-INSERT INTO key_codes
-    (key_id, kind, value_kind, range_min, range_max, native_vk, default_label)
-VALUES
-    ('w', 'keyboard', 'digital', NULL, NULL, 0x57, 'W'),
-    ('shift-left', 'keyboard', 'digital', NULL, NULL, 0xA0, 'Shift'),
-    ('mouse-left', 'mouse', 'digital', NULL, NULL, 0x01, 'LMB'),
-    ('pad-a', 'gamepad', 'digital', NULL, NULL, NULL, 'A'),
-    ('pad-lt', 'gamepad', 'analog', 0, 1, NULL, 'LT'),
-    ('pad-lx', 'gamepad', 'analog', -1, 1, NULL, 'Left X');
-```
+预置行不能删，不能改 `key_id` / `value_kind`。码本页：新增、绑原生码、改标签和线性范围。码不进 Profile。
 
-建库时插入 builtin 种子。捕获未知控件插入 `origin='capture'` 的临时行（`key_id` 可用 `unk-vk-xx` 这类可改名占位）。用户在码本页把它改成稳定 id，或事先注册好再录。码不进 Profile。
+本场通道下标由 `RecLayout` + `sessions.device_bits` 计算，不按会话再抄一份码本。
 
-KeyCodeRepository 对 UI 暴露：`list` / `create` / `update` / `remove` / `bindNative` / `findByNative`。删除前检查会话引用。
+### `sessions` / `frame_data`
 
-### sessions
+开录写入 `fps`、`device_bits`。`device_bits`：bit0 键盘、bit1 鼠标、bit2 XInput。鼠标位移是 analog 通道 `mouse-dx` / `mouse-dy`（帧增量）。
 
-一次录制一行，录制库列表的主表。事件本体在 `event_log_path` 指向的二进制文件里。
+Profile 不进库，会话没有 `profile_id`。
 
-```sql
-CREATE TABLE sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    display_name TEXT NOT NULL,
-    start_time INTEGER NOT NULL,
-    end_time INTEGER,
-    fps INTEGER NOT NULL DEFAULT 60,
-    total_frames INTEGER NOT NULL DEFAULT 0,
-    total_events INTEGER NOT NULL DEFAULT 0,
-    format_version INTEGER NOT NULL DEFAULT 1,
-    event_log_path TEXT NOT NULL,
-    recording_config_snapshot TEXT NOT NULL,
-    profile_name_snapshot TEXT,
-    note TEXT,
-    created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-    updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-);
-```
+### `markers`
 
-| 字段 | 说明 |
-| --- | --- |
-| `display_name` | 列表显示名，界面可改 |
-| `start_time` / `end_time` | Unix 毫秒；录制中 `end_time` 为 NULL |
-| `fps` | 开始录制时从配置拷入，本场只读 |
-| `recording_config_snapshot` | 开录时冻结的 `recording{}` JSON 副本。工作区 Profile 再改也不回写这里 |
-| `event_log_path` | 相对应用目录的二进制 log。这是事实源 |
-| `total_events` / `total_frames` | 停录后回填 |
-| `format_version` | 事件 log 格式版本 |
-| `profile_name_snapshot` | 可选，开录时的皮肤名，不是外键 |
-| `note` | 说明，界面可改 |
+帧级标记。`name` 录制时写入；`note` 事后在录制库改。控制热键不进按键流。
 
-`frame_data` / `axis_samples` 若保留，只作检查器加速，可从 log 重建。删除会话时同时删 log 文件。
+### 标签
 
-不要：`codec_id` / `profile_id` 外键，不要和 JSON Profile 强制关联。
-
-### frame_data
-
-按压缩后的 run 存，不是每个显示帧一行。连续相同按键状态写成一条，用 `run_len` 表示持续帧数。
-
-```sql
-CREATE TABLE frame_data (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER NOT NULL,
-    start_frame INTEGER NOT NULL,
-    run_len INTEGER NOT NULL,
-    state_blob BLOB NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    UNIQUE(session_id, start_frame)
-);
-```
-
-定位第 N 帧：
-
-```sql
-SELECT start_frame, run_len, state_blob
-FROM frame_data
-WHERE session_id = ? AND start_frame <= ?
-ORDER BY start_frame DESC
-LIMIT 1;
-```
-
-再确认 `N < start_frame + run_len`。
-
-若实现初期先按每帧一行落地，v0.3 必须换成 run，否则 120/240fps 空闲段会把库撑满。
-
-### session_keys
-
-该次录制用到的编码子集，以及它们在本会话 bitset 里的下标。下标从 0 连续，和 `state_blob` 对齐。
-
-```sql
-CREATE TABLE session_keys (
-    session_id INTEGER NOT NULL,
-    key_index INTEGER NOT NULL,
-    key_code_id INTEGER NOT NULL,
-    PRIMARY KEY (session_id, key_index),
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (key_code_id) REFERENCES key_codes(id)
-);
-```
-
-只收录 `value_kind = digital` 的码。解码：`key_index` → `key_codes.key_id` → 当前 Profile.rows 找颜色和标签。
-
-### session_axes / axis_samples（线性通道）
-
-线性控件不进 bitset。会话里出现过的轴单独建下标，每帧记归一化值。这是需求，不是 v1 之后的附件。
-
-```sql
-CREATE TABLE session_axes (
-    session_id INTEGER NOT NULL,
-    axis_index INTEGER NOT NULL,
-    key_code_id INTEGER NOT NULL,
-    PRIMARY KEY (session_id, axis_index),
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (key_code_id) REFERENCES key_codes(id)
-);
-
-CREATE TABLE axis_samples (
-    session_id INTEGER NOT NULL,
-    start_frame INTEGER NOT NULL,
-    run_len INTEGER NOT NULL,
-    values_blob BLOB NOT NULL,
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    UNIQUE(session_id, start_frame)
-);
-```
-
-`session_axes` 只收录 `value_kind = analog` 的码，`axis_index` 从 0 连续。`values_blob` 按该会话轴顺序存 `float32`（或后续版本约定）。连续相同向量可 RLE，写法对齐 `frame_data`。
-
-鼠标位移也是连续量，语义固定为「这一帧的增量」而不是指针的绝对轴位（绝对报告在写入 `InputEvent` 前已差分）。实现时走同一套 analog 通道（例如 `mouse-dx` / `mouse-dy`），不要另起第三套编码，也不要在导出/浮层里再分支 `MOUSE_MOVE_ABSOLUTE`。
-
-### markers
-
-同步点等帧级标记。控制热键本身不进按键流。
-
-```sql
-CREATE TABLE markers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id INTEGER NOT NULL,
-    frame_index INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    note TEXT NOT NULL DEFAULT '',
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    UNIQUE(session_id, frame_index, name)
-);
-```
-
-`name` 录制时写入（如 `sync`）。`note` 事后在录制库编辑，对应旧项目 sidecar 的 markerNotes。
-
-### tags / session_tags
-
-```sql
-CREATE TABLE tags (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tag TEXT NOT NULL UNIQUE
-);
-
-CREATE TABLE session_tags (
-    session_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    PRIMARY KEY (session_id, tag_id),
-    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-    FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
-);
-```
-
-### 不建的表
-
-| 旧设想 | 现在怎么做 |
-| --- | --- |
-| `codecs` | `sessions.format_version` + C++ 解码器 |
-| `profiles` | JSON 文件（颜色、布局、导出 fps） |
+`sessions.tags`：逗号分隔文本。
 
 ## 录制库界面与表
 
-这些界面是数据库的产品外壳，不是可选项。码本编辑页和录制库同级，都是库的用户入口。
-
-| 界面动作 | 涉及表 |
+| 界面动作 | 涉及 |
 | --- | --- |
-| 打开码本 / 注册新键或轴 | `key_codes` INSERT `origin='user'` |
-| 监听绑定原生码 | 捕获一次 → UPDATE `native_*` |
-| 认领捕获占位行 | 改 `key_id` / 标签 / 范围，`origin` 可改为 `user`（仅未被引用时改 id） |
-| 打开列表 | `sessions` + tags + markers 计数 |
-| 搜索名称/说明 | `sessions.display_name` / `note` |
-| 按标签筛选 | `session_tags` |
-| 改显示名/说明 | `UPDATE sessions` |
-| 改标签 | `session_tags` |
-| 打开检查器 | `session_keys` / `session_axes` + `key_codes` + `frame_data` / `axis_samples` + `markers` |
+| 打开码本 / 注册 | `key_codes` INSERT `origin='user'` |
+| 监听绑定原生码 | UPDATE `native_*` |
+| 认领捕获占位行 | 改 `key_id` / 标签 / 范围 |
+| 打开列表 | `sessions` + markers 计数 |
+| 搜索 | `display_name` / `note` |
+| 按标签筛选 | `sessions.tags` |
+| 改名 / 说明 / 标签 | `UPDATE sessions` |
+| 打开检查器 | `device_bits` + `RecLayout` + `frame_data` + `markers` |
 | 改 marker 备注 | `markers.note` |
 | 删除录制 | `DELETE FROM sessions`（级联） |
-| 导出/导入备份 | 上述表读写到备份文件 |
-| 回放/导出 | 读帧；Profile 来自当前 JSON |
+| 回放 / 导出 | 读帧；Profile 来自当前 JSON |
 
-## 帧二进制
+## 帧 blob
 
-v1（`format_version = 1`）两条通道，同一帧号对齐：
+只录键盘 / 鼠标 / XInput。认一场用 `sessions.id`。
 
-- **数字**：`state_blob` 为 bitset，长度 `ceil(session_keys 数量 / 8)`，小端 bit，表示哪些 `key_index` 按下。
-- **线性**：`values_blob` 为按 `axis_index` 排列的 `float32`，已按 `key_codes.range_min/max` 归一化。
+| 区 | 内容 | 宽度 |
+| --- | --- | --- |
+| 前半 | digital bitset，小端 bit | `ceil(N / 8)` |
+| 后半 | analog `float32` | `4 * M` |
 
-会话头信息在 `sessions` / `session_keys` / `session_axes`，不进每一行。blob 里不放原始 VK、HID 裸值、Profile 字段映射。
+`N`、`M` 由 `RecLayout` 按 `device_bits` 算出。`FrameBatchWriter` 攒一批再一次事务写入。blob 里不放 VK / HID / Profile。
 
-实现可以先打通数字通道，但表和码本必须一次建齐线性字段，避免以后把轴硬塞进 bitset。
+## 备份
 
-## 备份文件
-
-数据库不是文件系统，备份用来恢复「拖着走」的手感。一个会话一个文件，例如 `.pcrec`：
-
-- Magic / version
-- sessions 标量字段
-- 用到的 `key_codes` 快照（含 `value_kind` / 范围 / `native_*`）
-- `session_keys` / `session_axes`
-- frame runs / axis runs
-- markers（含 note）
-- tags
-
-导入时按 `key_id` 对齐本机 `key_codes`，没有则插入。备份不等于 Profile。换机器后用本地 JSON 打开同一份素材即可。
+一个会话一个 `.pcrec`：magic / version、`sessions` 标量、用到的 `key_codes` 快照、`frame_data`、markers。导入按 `key_id` 对齐本机码本，没有则插入。备份不是 Profile。
 
 ## 常用查询
 
-录制库列表：
-
 ```sql
-SELECT
-    s.id,
-    s.display_name,
-    s.start_time,
-    s.end_time,
-    s.fps,
-    s.total_frames,
-    (SELECT COUNT(*) FROM markers m WHERE m.session_id = s.id) AS marker_count
-FROM sessions s
-ORDER BY s.start_time DESC;
-```
+SELECT id, display_name, start_time, end_time, fps, total_frames
+FROM sessions
+ORDER BY start_time DESC;
 
-按标签：
+SELECT * FROM sessions
+WHERE ',' || tags || ',' LIKE '%,aim,%';
 
-```sql
-SELECT s.*
-FROM sessions s
-JOIN session_tags st ON st.session_id = s.id
-JOIN tags t ON t.id = st.tag_id
-WHERE t.tag = 'aim'
-ORDER BY s.start_time DESC;
-```
+SELECT frame, name, note FROM markers
+WHERE session_id = ? ORDER BY frame;
 
-检查器标记：
-
-```sql
-SELECT frame_index, name, note
-FROM markers
-WHERE session_id = ?
-ORDER BY frame_index;
-```
-
-删除一次录制：
-
-```sql
 DELETE FROM sessions WHERE id = ?;
 ```
 
-## 写入约定
+## 写入
 
-- 开录：把当前 `recording` 配置写入 `recording_config_snapshot` 和 `fps`，`end_time` 为 NULL。此后只读这份副本。
-- 进行中：内存攒 runs，批量 `INSERT frame_data`；可定期更新 `total_frames`
-- 停录：写剩余 runs，更新 `end_time` / `total_frames` / `updated_at`
-- 改名、改标签、改备注：只碰元数据表，禁止重写 `frame_data`
-- WAL；工作线程排队写。失败回滚时，保留已提交前缀或整段丢弃，二选一并在 UI 提示
+- 开录：`fps`、`device_bits`，`end_time` 为 NULL
+- 进行中：批量 `INSERT frame_data`
+- 停录：`end_time`、`total_frames`
+- 改名 / 标签 / 备注：只改 `sessions` / `markers`
+- WAL；工作线程排队写
 
-## 与 JSON 的关系
+## 与 JSON
 
-数据库管：`key_codes`（含线性范围）、`session_keys` / `session_axes`、`frame_data` / `axis_samples`、`markers`、`sessions.fps`。
+库：`key_codes`、`sessions`、`frame_data`、`markers`。
 
-JSON 管：`overlay.rows` / `style`、`export.fps` / 格式 / 文件名模板、热键与静默录制（app-config）。
+JSON：`overlay`、`export`、热键、app-config。
 
-库里可以记 `profile_name_snapshot`（纯文本，可空）。
-
-回放/导出：
-
-1. 从库取数字帧和线性帧（下标 → `key_codes.key_id`）
-2. 用当前 Profile 决定画哪些键/轴、什么颜色、导出多少 fps
-3. 素材有、布局没有：检查器可见，浮层不画
-4. 布局有、素材没有：数字键 idle，线性轴按 0（或该码中性点，如摇杆 0）
-5. 改 JSON 颜色或 `export.fps`：立刻影响预览/导出，不改库里的编码、范围和帧
-
-## 扩展示例
-
-开录：
-
-```sql
-INSERT INTO sessions (display_name, start_time, fps, format_version, profile_name_snapshot)
-VALUES ('20260906-153000', 1757140000000, 120, 1, 'CS POV');
-```
-
-事后改元数据：
-
-```sql
-UPDATE sessions
-SET display_name = 'Aim warmup', note = 'first run', updated_at = strftime('%s', 'now')
-WHERE id = 1;
-
-INSERT INTO tags (tag) VALUES ('aim') ON CONFLICT(tag) DO NOTHING;
-INSERT INTO session_tags (session_id, tag_id)
-SELECT 1, id FROM tags WHERE tag = 'aim';
-```
-
-新格式版本：只增加 `format_version = 2` 和 C++ `V2Decoder`。旧行继续用 `V1Decoder`。不必加 `codecs` 表。
-
-## 取舍
-
-- **SQLite**：码本、会话列表、标签。实时事件不往库里逐条 INSERT。
-- **二进制 log**：高频 InputEvent 的事实源。
-- **配置用 JSON**：可手改、可分享。
-- **60fps 快照**：只给浮层，不代替 log。
+回放：`device_bits` + `RecLayout` 还原 `key_id`，再用当前 Profile 决定怎么画。素材有、布局没有：检查器可见，浮层不画。布局有、素材没有：数字键 idle，轴为 0。
 
 ## C++ 类型
 
@@ -387,14 +120,3 @@ SELECT 1, id FROM tags WHERE tag = 'aim';
 | REAL | `double` |
 | TEXT | `QString` |
 | BLOB | `QByteArray` |
-
-## 文档版本
-
-| 版本 | 日期 | 说明 |
-| --- | --- | --- |
-| 1.0 | 2026-09-06 | 四表 + Profile 进库（已废弃） |
-| 1.1 | 2026-09-06 | 库只存录制；Profile 改为 JSON；run 存储与备份 |
-| 1.2 | 2026-09-06 | JSON 只管颜色/导出 fps；全局 `key_codes` |
-| 1.3 | 2026-09-06 | 码本区分 digital/analog；线性轴为正式通道 |
-| 1.4 | 2026-09-06 | 用户自定义注册；`origin`；码本界面为正式入口 |
-| 1.5 | 2026-09-08 | 会话指向二进制事件 log；帧表降为派生缓存 |

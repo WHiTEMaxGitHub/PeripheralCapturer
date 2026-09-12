@@ -35,7 +35,7 @@ Windows **QueryPerformanceCounter（QPC）** 是内核封装的高精度、单�
 | `global_qpcFreq` | `LARGE_INTEGER`，tick/秒。`init` 时 `QueryPerformanceFrequency`。换算用 `.QuadPart`。 |
 | `global_startCount` | 时间原点。`init` 时打一次 `QueryPerformanceCounter`。之后所有 `nowUs()` 相对它。 |
 
-**起点何时打：** 预览时间轴要连续可以用进程启动；**一场录像的事实源更干净的是开录时重打**，让这场 log 从 0 附近开始。当前 `init()` 在 `main` 启动时调用一次，尚未按「开录重置」。开录重置后，未结束的预览与本场 log 的零点会不同，这是预期。
+**起点何时打：** 预览时间轴要连续可以用进程启动；**一场录像更干净的是开录时重打**，让这场从 0 附近开始。当前 `init()` 在 `main` 启动时调用一次，尚未按「开录重置」。开录重置后，未结束的预览与本场的零点会不同，这是预期。
 
 ---
 
@@ -59,9 +59,7 @@ Windows **QueryPerformanceCounter（QPC）** 是内核封装的高精度、单�
 
 `kFrameUs = 1_000_000 / fps`，返回 `timestampUs / kFrameUs`（整数除）。`fps` 必须是 **本场冻结的 `sessions.fps`**，不是导出 fps，也不是后来改过的 `recording.defaultFps`。
 
-`fps == 0` 未防护，调用方保证。
-
-当前 `MakeBaseEvent` 里写死 `60`，与「开录拷贝 fps」的设计不符，接线时应传入本场 fps。
+`fps == 0` 调用方保证。`MakeBaseEvent` 用 `Timer::sessionFps()`（开录时 `setSessionFps`），不要写死 60。
 
 ### `MakeBaseEvent()`
 
@@ -75,6 +73,6 @@ Windows **QueryPerformanceCounter（QPC）** 是内核封装的高精度、单�
 
 ## 与抓取帧率
 
-`frameIndex` 是事件上的标签。没有事件就没有 log 行。不要用 Timer 每 `kFrameUs` 往总线灌一帧空状态。
+`frameIndex` 是事件上的标签。没有事件就没有可归并的变化。不要用 Timer 每 `kFrameUs` 往总线灌一帧空状态。Recorder 按帧号写 `frame_data` 时可以重复上一帧 blob。
 
-浮层快照频率可以 ≤ `captureFps`，那是派生。
+浮层快照频率可以 ≤ `captureFps`。

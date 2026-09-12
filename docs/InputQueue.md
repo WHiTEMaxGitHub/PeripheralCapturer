@@ -15,7 +15,7 @@
 
 ## 1. 在整条架构里站哪一层
 
-产品定的事实源是 **InputEvent**（状态变化），不是 Windows 的 `WM_INPUT`，也不是每帧 bitset。
+采集链路里，状态变化写成 **InputEvent**；录制按 `frameIndex` 归并成帧写入 `frame_data`。
 
 从硬件到磁盘 / 浮层是 **两级队列，不要合成一个**：
 
@@ -48,7 +48,7 @@
    录制线程            浮层聚合             码本「按一下绑定」
    Block，不丢         可丢旧的             临时订阅
    含 MouseMove        默认不含 Move        不含 Move
-   append 二进制 log   降频快照 → WebSocket 听一个控件就退订
+   归帧写 frame_data   降频快照 → WS       听一个控件就退订
 ```
 
 对照关系：
@@ -62,7 +62,7 @@
 | 设备身份 | `DeviceRegistry`                       | 在 **publish 之前**，不是总线订阅者      |
 | 后端选择 | `shouldIgnoreRawHid` / 日后 DeviceRouter | 同样在 publish 之前                |
 
-**时钟只给事件打戳和算 `frameIndex`，不决定「这一帧有没有东西可写」。** 没有状态变化就没有 `InputEvent`，录制 log 也就不写。派生的「第 N 帧 bitset」可以停录后从 log 扫出来，或在内存里按 `frameIndex` 归并。
+**时钟只给事件打戳和算 `frameIndex`，不决定「这一帧有没有东西可写」。** 没有状态变化就没有 `InputEvent`。Recorder 在内存里按 `frameIndex` 归并成帧再批量写入 `frame_data`。空闲帧可以重复上一帧状态，不要往总线灌假事件。
 
 **浮层不要订阅全量 InputEvent。** WebView 只吃降频快照。总线里 overlay 那条队列已经默认丢掉 `MouseMove`；即便如此，仍应再聚合成 snapshot 再走 WebSocket，而不是把事件 JSON 进 JS。
 
@@ -137,7 +137,7 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 1. 磁盘慢 → 录制队列满 → 处理线程在 `push` 上阻塞；
 2. 处理线程不 `pop` 包 → 包队列满 → `tryPush` 丢最老的 Raw 包；
-3. **不要**在录制队列上丢 `KeyDown` 来「保护」捕获。事实源优先于「系统包一条不漏」（系统包本来就可以丢，因为 HID 会整包重发；KeyDown 丢了回放少一次按下）。
+3. **不要**在录制队列上丢 `KeyDown` 来「保护」捕获。系统包可以丢（HID 会整包重发）；KeyDown 丢了回放少一次按下。
 
 ### 构造函数
 
@@ -214,7 +214,7 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 | `name`            | 空            | 调试标签（`recorder` / `overlay` / `bind`）。运行不分支这个字符串。                                                      |
 | `capacity`        | 4096         | 该订阅者专用队列长度。                                                                                            |
 | `overflow`        | `DropOldest` | 该队列满员策略。录制必须改成 `Block`。                                                                                |
-| `acceptMouseMove` | `true`       | `false` 时 `publish` 遇到 `InputEventType::MouseMove` 直接跳过，事件不进这条队列。浮层、绑键用 `false`；录制必须 `true`，否则位移事实源丢失。 |
+| `acceptMouseMove` | `true`       | `false` 时 `publish` 遇到 `InputEventType::MouseMove` 直接跳过。浮层、绑键用 `false`；录制必须 `true`，否则没有位移。 |
 
 ### 公开方法
 
@@ -256,7 +256,7 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 | 符号                             | 含义                                                                                                                                                   |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `kRawPacketQueueCapacity`      | 包队列长度 **4096**。创建：`BoundedQueue<RawInputPacket> packets(kRawPacketQueueCapacity, QueueOverflow::DropOldest);` 策略必须是 DropOldest，预设里只定容量，防止有人抄成 Block。 |
-| `recorderSubscribeOptions()`   | 名 `recorder`，容量 8192，**Block**，**收** MouseMove。事实源。                                                                                                  |
+| `recorderSubscribeOptions()`   | 名 `recorder`，容量 8192，**Block**，**收** MouseMove。归帧后写 `frame_data`。                                                                                                  |
 | `overlaySubscribeOptions()`    | 容量 64，DropOldest，**不收** MouseMove。给快照聚合用；真正画 UI 还要再降频。                                                                                               |
 | `bindListenSubscribeOptions()` | 容量 32，DropOldest，不收 Move。码本监听「下一个非移动事件」。                                                                                                             |
 
@@ -282,7 +282,7 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 ### 录制
 
-订阅 recorder 队列，`pop` 到一条就 append 二进制。不要按 60Hz 定时 dump 全帧当事实源。`frameIndex` 只是事件上的字段。
+订阅 recorder 队列，按 `frameIndex` 归并冻通道（`RecLayout` + `device_bits`），再 `FrameBatchWriter` 批量 INSERT。不要按 60Hz 定时往总线灌全状态。也不要逐事件 INSERT。
 
 ### 浮层
 
@@ -290,7 +290,7 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 ---
 
-## 8. 推荐接线（尚未写进 main 的示意）
+## 8. 推荐接线（Recorder / WS 尚未进 main，采集 Pipeline 已接上）
 
 ```cpp
 // 成员
@@ -317,15 +317,15 @@ while (auto pkt = packets.pop()) {
     const auto id = registry.getOrCreateRawDevice(pkt->hDevice, /* 由 dwType 映射 */);
     // 解析 bytes，相对该设备上一份状态差分
     // if (!changed) continue;
-    InputEvent e = Timer::MakeBaseEvent();
+    InputEvent e = Timer::MakeBaseEvent(pkt->timestampUs);
     e.deviceID = id;
     // ... 填 type / control / 数值
     bus.publish(e);
 }
 
-// 录制线程
+// 录制线程：按 e.frameIndex 归并冻通道，攒一批再 appendFrames
 while (auto e = logQ->pop()) {
-    append_binary_log(*e);
+    recorder.ingest(*e);
 }
 ```
 
@@ -341,7 +341,7 @@ while (auto e = logQ->pop()) {
 | 包队列用 `Block`                               | 同上              |
 | 录制队列 `DropOldest`                          | 丢 KeyDown，回放缺按键 |
 | overlay `acceptMouseMove = true` 且容量很小     | 全是 Move，按键被挤掉   |
-| 把 `hDevice` 当 `deviceID` 写进 log            | 拔插后对不上设备        |
+| 把 `hDevice` 当 `deviceID` 写进库            | 拔插后对不上设备        |
 | 在 WndProc 调 `GetRawInputDeviceInfo` / HidP | 捕获线程变重          |
 | 处理线程 `publish` 里直接写文件、发 WebSocket          | 总线失去意义，卡差分      |
 | 把 DeviceRouter 当总线订阅者                      | 重复事件已经生成了，过滤太晚  |
@@ -351,6 +351,6 @@ while (auto e = logQ->pop()) {
 
 ## 10. 和数据库 / 帧缓存的边界
 
-队列和总线 **不写 SQLite**。SQLite 是码本和会话元数据。实时只有二进制 log（recorder 订阅者）。
+队列和总线 **不写 SQLite**。Recorder 订阅者在自己的线程里攒帧再调 `appendFrames`。热路径（WndProc）禁止碰库。
 
-`session_keys` 的 bitset、`session_axes` 的 float 向量是 **派生**：用 log 里的事件按 `frameIndex` 归并。可以停录再扫，也可以录制时在内存里顺带做。空闲帧不必每 16ms 往队列里塞假事件。
+`frame_data` 的 bitset / float 由总线上的事件按 `frameIndex` 归并。空闲帧不必每 16ms 往队列里塞假事件。

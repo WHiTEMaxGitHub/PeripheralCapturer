@@ -4,11 +4,11 @@
 
 形态对齐 Tauri：**C++ Native Core** 负责系统能力，**Qt WebView 浮层**负责渲染，两者用 **本机 WebSocket** 解耦。Raw Input / XInput 负责高精度采集，WebView 只消费降频快照。
 
-配套文档：[数据库设计](DatabaseDesign.md)、[InputEvent](InputEvent.md)、[设备注册表](DeviceRegistry.md)、[时钟](Timer.md)、[输入队列与事件总线](InputQueue.md)、[POV 前端](PovFrontend.md)、[待办](TODO.md)、[README](../README.md)。
+配套文档：[数据库建表](DatabaseSchema.md)、[数据库设计](DatabaseDesign.md)、[InputEvent](InputEvent.md)、[设备注册表](DeviceRegistry.md)、[时钟](Timer.md)、[输入队列与事件总线](InputQueue.md)、[POV 前端](PovFrontend.md)、[待办](TODO.md)、[README](../README.md)。
 
 ## 目标
 
-在 Windows 上录制键盘、鼠标、摇杆、手柄、方向盘、脚踏板等输入。采集时保留全量 **InputEvent**（带微秒时间戳），再按**本场录制的抓取帧率**归到 `frameIndex`；浮层按同一套（或更低的）快照频率绘制。导出帧率单独可配，不改已写入的时间戳。
+在 Windows 上录制键盘、鼠标、摇杆、手柄、方向盘、脚踏板等输入。采集时用全量 **InputEvent**（带微秒时间戳）驱动归帧；落盘是 `frame_data` 一行一帧。浮层按同一套（或更低的）快照频率绘制。导出帧率单独可配，不改已写入的帧。
 
 ## 平台与捕获
 
@@ -16,7 +16,7 @@
 
 | 输入 | Windows 方式 | 不做什么 |
 | --- | --- | --- |
-| 键盘 / 鼠标 | Raw Input + `WM_INPUT`，`RIDEV_INPUTSINK` | 不用 Qt `keyPressEvent` 当事实源；**不要** `RIDEV_NOLEGACY`（会掐掉 Qt 旧消息） |
+| 键盘 / 鼠标 | Raw Input + `WM_INPUT`，`RIDEV_INPUTSINK` | 不用 Qt `keyPressEvent` 采集；**不要** `RIDEV_NOLEGACY`（会掐掉 Qt 旧消息） |
 | 通用 HID（摇杆、方向盘、踏板、非 Xbox 手柄） | Raw Input `RIM_TYPEHID` + `HidP_*` | 不接 SDL |
 | Xbox / XInput 兼容手柄 | `XInputGetState` 轮询（约 250Hz） | 不要和 HID 重复记同一把手柄 |
 | 热键 | Raw Input 状态机，或 `RegisterHotKey` | 不设计跨平台快捷键库 |
@@ -32,9 +32,9 @@ Usage 注册建议同时覆盖 Desktop 页：`0x02` 鼠标、`0x06` 键盘、`0x
 | 语言 | C++20 |
 | GUI | Qt 6 Widgets（配置窗、录制库） |
 | 浮层 | 无边框置顶透明窗口 + Qt WebView（**POV**，Windows 为 WebView2） |
-| Native ↔ Web | 本机 WebSocket（控制面 RPC + 数据面快照）；QWebChannel 仅作备选 |
-| 录制热路径 | 二进制 append-only log |
-| 会话 / 码本 | SQLite |
+| Native ↔ Web | 本机 WebSocket（控制面 RPC + 数据面快照） |
+| 录制落盘 | SQLite `frame_data`（bitset + float32，内存攒批） |
+| 会话 / 码本 | 同一份 `data.db` |
 | 用户配置 | JSON |
 | 日志 | spdlog |
 | 构建 | CMake + Ninja，MSVC 2022 |
@@ -44,19 +44,19 @@ Usage 注册建议同时覆盖 Desktop 页：`0x02` 鼠标、`0x06` 键盘、`0x
 | 层 | 形态 | 用户怎么用 |
 | --- | --- | --- |
 | 按键编码 | SQLite `key_codes` | 预置 + 捕获占位 + **用户自行注册** |
-| InputEvent 事实源 | 会话旁的二进制 log | 录制/回放/分析只认事件流 |
-| 会话元数据 | SQLite | 录制库列表、标签、marker 备注 |
-| 派生帧 / 快照 | 可选缓存或导出 | 不替代事件流 |
+| 运行期事件 | `InputEvent` 总线 | 采集 / 热键 / 浮层聚合 |
+| 录制素材 | SQLite `frame_data` | 一行一帧 blob |
+| 会话元数据 | SQLite `sessions` / `markers` | 录制库列表、标签、marker 备注 |
 | Profile | JSON | 颜色、布局、导出 fps |
-| App config | JSON | Profile 路径、热键、目录 |
+| App config | JSON | 要录的设备、热键、目录 |
 
 原则：
 
-1. **InputEvent 是唯一事实源。** `InputState`、脏标记、60fps 快照都是派生视图。只存帧末状态会丢掉一帧内的 down/up。
-2. **素材与皮肤分离。** 回放/导出时再选 Profile。会话不强制 `profile_id`。
-3. **录制库界面是产品。** 列表、检查、改名、标签、删除、导入导出备份走 UI。
-4. **JSON 只管观感和导出。** 编码在库；改皮肤不能改「W 是什么键」。
-5. **实时不要写 JSON。** 热路径 append 二进制，结束后再导出 JSON/CSV。
+1. **采集出 InputEvent，录制写 `frame_data`。** 总线驱动热键、归帧和浮层聚合。每帧 blob：bitset + float32。一帧内 down 又 up，检查器看到帧末状态。
+2. **素材与皮肤分离。** 回放/导出时再选 Profile。
+3. **录制库界面是产品。** 列表、检查、改名、标签、删除、导入导出走 UI。
+4. **JSON 管观感和导出。** 编码在库。
+5. **热路径不写 JSON。** 只入队；帧进 SQLite BLOB。
 
 ## 项目结构
 
@@ -67,14 +67,18 @@ PeripheralCapturer/                 # 仓库根
 ├── CMakeLists.txt
 ├── CMakePresets.json
 ├── README.md
+├── AGENTS.md
 ├── docs/
 │   ├── ArchitectureDesign.md
+│   ├── DatabaseSchema.md
 │   └── DatabaseDesign.md
 ├── PeripheralCapturer/
 │   ├── main.cpp
 │   ├── Layout/                     # 配置窗
 │   ├── overlay/                    # POV
 │   ├── capture/                    # 隐藏捕获窗
+│   ├── Input/                      # 包队列、总线、Registry、Pipeline
+│   ├── storage/                    # SQLite、RecLayout、AppConfig
 │   ├── web/                        # POV 前端
 │   └── utils/                      # Logger
 └── out/
@@ -94,7 +98,7 @@ PeripheralCapturer/                 # 仓库根
 
 POV 不是配置窗的子控件，捕获窗也不是配置窗的 `winId()`。捕获窗用 `HWND_MESSAGE`，没有客户区、不进任务栏。
 
-**配置窗**管码本 / Profile / 录制库。**POV** 开发期加载 Vite `http://127.0.0.1:5173`，发布期加载打包结果；和 Native 用本机 WebSocket，不用 QWebChannel。**捕获窗**以后 `RegisterRawInputDevices`，`RIDEV_INPUTSINK`，不要 `RIDEV_NOLEGACY`。
+**配置窗**管设备勾选 / 码本 / Profile / 录制库。**POV** 开发期加载 Vite `http://127.0.0.1:5173`，没开 Vite 时 `loadHtml` 离线页；和 Native 用本机 WebSocket。**捕获窗** `RegisterRawInputDevices`（键 `0x06`、鼠 `0x02`），`RIDEV_INPUTSINK`，不要 `RIDEV_NOLEGACY`。
 
 ```text
 HiddenRawInputWindow
@@ -104,7 +108,7 @@ RawInputPacketQueue
 InputProcessor          RawInputPacket / XInput 差分 → InputEvent
   ↓
 InputEventBus
-  ├── InputRecorder     全量二进制 log
+  ├── Recorder          按 frameIndex 归并冻通道 → frame_data
   ├── FrameAggregator   按本场 captureFps 聚合成 OverlayInputSnapshot
   ├── LocalWebSocket    推快照、收命令
   └── DeviceRouter      XInput 优先，HID 侧过滤 IG_
@@ -144,7 +148,7 @@ HID 解析、和上一份状态比、生成 ButtonDown/AxisChanged，放到 **In
 | 名称 | 作用 | 怎么定 |
 | --- | --- | --- |
 | **抓取 / 对齐帧率** `sessions.fps` | 把 `timestampUs` 映射成 `frameIndex`，快照也按它 | **点开始录制时**从当前配置拷入并锁定。改配置只影响下一场 |
-| **导出帧率** `export.fps` | 导出视频或重采样时间线时用 | Profile JSON 随时可改，只影响导出，不改 log |
+| **导出帧率** `export.fps` | 导出视频或重采样时间线时用 | Profile JSON 随时可改，只影响导出，不改已写入的帧 |
 
 事件仍然是「来了就记」，不是按抓取帧率去轮询硬件。抓取帧率只决定怎么切帧。
 
@@ -153,7 +157,7 @@ HID 解析、和上一份状态比、生成 ButtonDown/AxisChanged，放到 **In
 ```cpp
 // start_recording 时
 session.fps = currentProfile.recording.defaultFps;
-session.recording_config_snapshot = serialize(currentProfile.recording); // 本场只读副本
+session.device_bits = appConfig.recordingDeviceBits(); // 本场只读
 const int captureFps = session.fps;
 const int64_t kFrameUs = 1'000'000 / captureFps;
 ```
@@ -162,7 +166,7 @@ const int64_t kFrameUs = 1'000'000 / captureFps;
 
 XInput 轮询频率（例如 250Hz）是采集后端的事，和 `sessions.fps` 无关：轮询可以更快，再归到同一套 `frameIndex`。
 
-浮层快照默认跟 `captureFps`；若 UI 吃力，可以另用更低的 overlay fps，那只是派生，不是第二份事实源。
+浮层快照默认跟 `captureFps`；若 UI 吃力，可以用更低的 overlay fps。
 
 ### RawInputPacket 与 InputEvent
 
@@ -184,13 +188,13 @@ Xbox 类：路径含 `IG_` 的 HID 默认交给 XInput，Raw HID 忽略，避免
 
 **Timer**：QPC 微秒、`sequence`、按本场 fps 算 `frameIndex`。见 [时钟](Timer.md)。
 
-**Recorder**：append-only 二进制事件流。SQLite 存编码表（`key_codes` 的原生码映射、本场 `session_keys` / `session_axes` 下标）和会话行 / log 路径，用来查表解码，不逐条存事件。Marker、控制热键完整触发时不写入按键流。
+**Recorder**：按本场 fps 归并通道，写入 `frame_data`。通道下标用 `RecLayout` + `device_bits`。Marker、控制热键完整触发时不写入按键流。
 
 **Storage**：码本用户可注册（见数据库文档）。不存 Profile。
 
-**Config**：App config 与 Profile JSON，手感同旧项目。
+**Config**：app-config 与 Profile 用 JSON。
 
-**Playback**：重放事件流（或派生帧），套当前 Profile。
+**Playback**：重放 `frame_data`，套当前 Profile。
 
 **Export**：当时选中的 Profile。一期 JSON/CSV；二期 overlay 视频。
 
@@ -203,19 +207,19 @@ Xbox 类：路径含 `IG_` 的 HID 默认交给 XInput，Raw HID 忽略，避免
 ```text
 硬件
   → Raw Input 线程：拷包 + 时间戳
-  → 处理线程：解析、路由、查/登记 key_codes、生成 InputEvent
-  → Recorder 二进制 log + 会话元数据入库
+  → 处理线程：解析、路由、查 key_codes、生成 InputEvent
+  → Recorder 按 frameIndex 归并 → FrameBatchWriter → frame_data
   → FrameAggregator 按 captureFps 出快照
   → WebSocket 推给浮层（可丢旧帧）
 ```
 
 ### 回放
 
-录制库打开会话 → 读事件 log → 按时间/帧重建 → 当前 Profile 决定怎么画。
+录制库打开会话 → 读 `frame_data` → 用 `device_bits` + `RecLayout` 还原通道 → 当前 Profile 决定怎么画。
 
 ### 改配置
 
-手改 JSON → 校验 → currentProfile → 可选写回 sourcePath → 下次快照按新皮肤画。不改已录事件。
+手改 JSON → 校验 → currentProfile → 可选写回 sourcePath → 下次快照按新皮肤画。不改已录帧。
 
 ## 线程
 
@@ -224,7 +228,7 @@ Xbox 类：路径含 `IG_` 的 HID 默认交给 XInput，Raw HID 忽略，避免
 | RawInputWindowThread | 隐藏窗口、注册设备、消息循环、入队 packet |
 | InputProcessingThread | 解析 HID/键鼠、XInput 差分、标准化事件 |
 | XInput 轮询 | 约 250Hz `XInputGetState`，可与处理线程合并 |
-| RecorderWriterThread | 批量写二进制 log |
+| RecorderWriterThread | 内存攒帧，批量 INSERT `frame_data` |
 | NetworkThread | 本机 WebSocket |
 | Qt UI Thread | 配置窗、录制库、浮层窗口；不采集、不落盘 |
 
@@ -238,7 +242,6 @@ Xbox 类：路径含 `IG_` 的 HID 默认交给 XInput，Raw HID 忽略，避免
 应用目录/
 ├─ app-config.json
 ├─ data.db
-├─ recordings/              # 每会话一个二进制 log
 ├─ log/
 └─ backups/
 ```
@@ -247,13 +250,13 @@ Profile 不预生成。Debug 用系统 AppData。
 
 ### app-config.json
 
-`currentProfile.sourcePath`、热键、静默录制、`recording.defaultFps`、备份目录、语言主题、窗口几何、WebSocket 端口策略。不要再用 QSettings 当第二份真相。
+`currentProfile.sourcePath`、热键、静默录制、要录的设备（`recording.keyboard / mouse / gamepad`）、备份目录、语言主题、窗口几何、WebSocket 端口策略。
 
 ### profile JSON
 
 只放观感与导出。`overlay.rows[].id` 必须等于 `key_codes.key_id`。
 
-`recording.defaultFps`：工作副本里的抓取默认值，随时能改。**只有点开始录制的那一刻**拷进 `sessions.fps` 并冻结 `recording_config_snapshot`。当场和事后改这个字段，下一场才生效。  
+`recording.defaultFps`：工作副本里的抓取默认值，随时能改。**只有点开始录制的那一刻**拷进 `sessions.fps` 并写入 `device_bits`。当场和事后改这个字段，下一场才生效。  
 `export.fps`：导出时用当时的 Profile，不写进冻结的录制配置。
 
 非法 JSON 只提示，不擅自覆盖用户文件。
@@ -273,7 +276,7 @@ cmake --build --preset x64-debug
 | --- | --- |
 | v0.1 | CMake、spdlog、配置窗空壳、码本表、录制库空壳 |
 | v0.2 | 隐藏窗口 Raw Input：键盘鼠标 → InputEvent 入队（WndProc 不重活） |
-| v0.3 | 二进制 recorder、按本场 fps 归帧、WebSocket 快照、浮层 WebView |
+| v0.3 | Recorder 写 `frame_data`、按本场 fps 归帧、WebSocket 快照、浮层 WebView |
 | v0.4 | HID 解析、XInput 路由、码本监听绑定 |
 | v0.5 | 录制库检查器、回放、JSON/CSV 导出、穿透热键 |
 | v1.0 | 多设备、安装包、可选 overlay 视频 |
@@ -282,4 +285,4 @@ cmake --build --preset x64-debug
 
 字段与「何时发」见 [InputEvent](InputEvent.md)。
 
-浮层快照不是事实源，只含按下的 key_id、鼠标 delta 合计、轴当前值。
+浮层只画快照：按下的 key_id、鼠标 delta 合计、轴当前值。

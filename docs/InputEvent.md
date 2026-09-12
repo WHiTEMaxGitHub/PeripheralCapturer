@@ -1,4 +1,4 @@
-# InputEvent（事实源）
+# InputEvent
 
 `PeripheralCapturer/Input/InputEvent.h`。一条事件 = **某一个控件（或设备插拔）的状态变了**，不是系统包原样转发。
 
@@ -16,7 +16,7 @@ RawInputPacket / XInput 状态
               Registry 填 deviceID
               解析结果填 type / control / 数值
     → InputEventBus::publish
-    → 录制 log（事实源）以及浮层等派生消费者
+    → Recorder 归帧写入 frame_data；浮层等订总线做派生快照
 ```
 
 不进 `InputEvent` 的：
@@ -104,7 +104,7 @@ XInput 十字键是四个数字键（`Button*`），不是 `HatChanged`。Hat �
 | --- | --- |
 | `sequence` | 全局单调序号，只给 **事件** 发（`Timer::global_sequence`）。系统包不占号。同微秒时用它排序、查漏号。 |
 | `timestampUs` | 相对 Timer 起点的微秒。包上的时间在 WndProc 入队前打好，生成事件时应沿用包的时间，而不是再问一次 `nowUs()`（否则处理延迟会进时间轴）。 |
-| `frameIndex` | `timestampUs / kFrameUs`。`kFrameUs` 来自本场冻结的 `sessions.fps`，不是全局 `#define 60`。归帧字段，不表示「到点必须写一行 log」。 |
+| `frameIndex` | `timestampUs / kFrameUs`。`kFrameUs` 来自本场冻结的 `sessions.fps`，不是全局 `#define 60`。归帧字段，不表示「到点必须写一行」。 |
 
 ### 设备
 
@@ -120,7 +120,7 @@ XInput 十字键是四个数字键（`Button*`），不是 `HatChanged`。Hat �
 | --- | --- |
 | `control` | 码本 `key_id` 或设备上的控件名（`A`、`LeftTrigger`、`Pointer`、`Hat`）。说的是 **哪个控件**，不是哪台设备。插拔事件可空。 |
 | `rawValue` | 硬件/API 整数：数字键 0/1，轴为原始计数，帽为 `HatDirection`，滚轮为滚动量。不要拿它直接画进度条（扳机 255 和摇杆 32767 不可比）。 |
-| `normalizedValue` | 映射后的可比区间：数字键 0/1，扳机 0..1，摇杆 −1..1。归一规则应进本场 `recording_config_snapshot`。MouseMove 不用。 |
+| `normalizedValue` | 映射后的可比区间：数字键 0/1，扳机 0..1，摇杆 −1..1。归一规则看码本 `range_min` / `range_max`。MouseMove 不用。 |
 | `dx` / `dy` | **仅 MouseMove**，永远是相对位移。绝对报告在处理线程按设备 `lastAbs` 差分后再写入。消费者只做加法，不再判断 `MOUSE_MOVE_ABSOLUTE`。第一包绝对/重连无上一包：只更新缓存，不发 Move。归帧后同一 `frameIndex` 内对 `dx`/`dy` 求和 → 码本 analog 通道 `mouse-dx` / `mouse-dy`。 |
 | `vkey` | Windows 逻辑键（布局之后），对应码本 `native_vk`。 |
 | `scanCode` | 物理 MakeCode（键位）。 |
@@ -142,8 +142,6 @@ XInput 十字键是四个数字键（`Button*`），不是 `HatChanged`。Hat �
 
 ---
 
-## 与码本 / 帧缓存
+## 与码本 / 帧
 
-`control` 应对齐 `key_codes.key_id`。`value_kind = digital` 走按下集合；`analog` 走归一化值。鼠标位移是「帧增量」不是绝对轴位，仍走 analog 通道。
-
-二进制 log 存全量事件。SQLite 帧 blob 是派生，不能替代事件流（一帧内 down+up 会在帧末 bitset 里消失）。
+`control` 对齐 `key_codes.key_id`。digital 进 bitset，analog 进 float32。鼠标位移是帧增量，走 `mouse-dx` / `mouse-dy`。一帧内 down 又 up，检查器看到的是帧末状态。
