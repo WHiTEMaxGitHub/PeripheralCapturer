@@ -62,31 +62,47 @@ BOOL CALLBACK dumpChild(HWND hwnd, LPARAM lParam) {
     return TRUE;
 }
 
-void applyHitTestStyle(HWND hwnd, bool clickThrough, const char* tag) {
-    if (!hwnd) {
-        spdlog::debug("[pov] applyHitTestStyle {} hwnd=null", tag);
+bool isWebView2Compositor(HWND hwnd) {
+    wchar_t cls[128] = {};
+    if (GetClassNameW(hwnd, cls, 128) <= 0) {
+        return false;
+    }
+    // 合成窗打 layered / color-key 会把 WebView2 打崩（读 0xFFFFFFFFFFFFFFFF）。
+    return wcsstr(cls, L"Chrome_") != nullptr || wcsstr(cls, L"Intermediate D3D") != nullptr;
+}
+
+void applyHitTestStyle(HWND hwnd, bool clickThrough, const char* tag, bool layeredColorKey) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        spdlog::debug("[pov] applyHitTestStyle {} hwnd invalid", tag);
+        return;
+    }
+    if (isWebView2Compositor(hwnd)) {
         return;
     }
     LONG_PTR ex = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
-    ex |= WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+    ex |= WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+    if (layeredColorKey) {
+        ex |= WS_EX_LAYERED;
+    }
     if (clickThrough) {
         ex |= WS_EX_TRANSPARENT;
     } else {
         ex &= ~WS_EX_TRANSPARENT;
     }
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, ex);
+    if (!layeredColorKey) {
+        return;
+    }
     SetLastError(0);
-    const BOOL layered = SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 255, LWA_COLORKEY);
-    if (!layered) {
+    if (!SetLayeredWindowAttributes(hwnd, RGB(0, 0, 0), 255, LWA_COLORKEY)) {
         spdlog::warn("[pov] SetLayeredWindowAttributes failed tag={} err={}", tag, GetLastError());
-    } else {
-        spdlog::debug("[pov] hitTest tag={} hwnd={} clickThrough={} ex={:#x}", tag,
-                      static_cast<void*>(hwnd), clickThrough,
-                      static_cast<unsigned long long>(GetWindowLongPtrW(hwnd, GWL_EXSTYLE)));
     }
 }
 
 void applyDwmFrame(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) {
+        return;
+    }
     const HRESULT hr =
         DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &kFrameColor, sizeof(kFrameColor));
     if (FAILED(hr)) {
@@ -97,8 +113,8 @@ void applyDwmFrame(HWND hwnd) {
 }
 
 BOOL CALLBACK applyHitTestToChild(HWND hwnd, LPARAM lParam) {
-    applyHitTestStyle(hwnd, lParam != 0, "child");
-    EnumChildWindows(hwnd, applyHitTestToChild, lParam);
+    // 子窗只加穿透，不加 color-key。递归 Enum 已由 applyClickThrough 做一层即可。
+    applyHitTestStyle(hwnd, lParam != 0, "child", false);
     return TRUE;
 }
 
@@ -146,7 +162,8 @@ PovWindow::PovWindow(QWindow* parent): QWebView(parent) {
         if (status == QWebViewLoadingInfo::LoadStatus::Failed) {
             spdlog::error("[pov] load failed url={} err={}", info.url().toString().toStdString(),
                           info.errorString().toStdString());
-            loadOfflineHtml();
+            // 失败回调里同步 loadHtml 会重入 WebView2，等事件转完再换页。
+            QTimer::singleShot(0, this, [this] { loadOfflineHtml(); });
         } else if (status == QWebViewLoadingInfo::LoadStatus::Succeeded) {
             spdlog::info("[pov] load ok url={}", info.url().toString().toStdString());
         } else {
@@ -184,13 +201,7 @@ bool PovWindow::event(QEvent* event) {
 void PovWindow::setClickThrough(bool enabled) {
     clickThrough_ = enabled;
     spdlog::info("[pov] setClickThrough {}", enabled);
-    auto flags = this->flags();
-    if (enabled) {
-        flags |= Qt::WindowTransparentForInput;
-    } else {
-        flags &= ~Qt::WindowTransparentForInput;
-    }
-    setFlags(flags);
+    // show 之后不要 setFlags：QWindow 会重建 HWND，WebView2 控制器仍绑旧窗，读野指针崩。
     applyClickThrough();
 }
 
@@ -206,7 +217,7 @@ void PovWindow::applyClickThrough() {
     GetWindowRect(hwnd, &wr);
     spdlog::debug("[pov] applyClickThrough #{} hwnd={} vis={} {}x{}", calls, static_cast<void*>(hwnd),
                   isVisible(), wr.right - wr.left, wr.bottom - wr.top);
-    applyHitTestStyle(hwnd, clickThrough_, "root");
+    applyHitTestStyle(hwnd, clickThrough_, "root", true);
     applyDwmFrame(hwnd);
     if (calls <= 8) {
         ChildDump dump;
