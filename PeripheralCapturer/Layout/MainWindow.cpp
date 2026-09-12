@@ -2,9 +2,11 @@
 
 #include "../Input/GamepadProbe.h"
 
+#include <QCheckBox>
 #include <QFont>
 #include <QLabel>
 #include <QListWidget>
+#include <QSignalBlocker>
 #include <QStatusBar>
 
 #include <spdlog/spdlog.h>
@@ -12,6 +14,7 @@
 MainWindow::MainWindow(QWidget* parent): QMainWindow(parent) {
     ui.setupUi(this);
     setupChrome();
+    setupRecordTargets();
 
     connect(ui.LeftSideBar, &QListWidget::currentRowChanged,
             ui.stackedWidget, &QStackedWidget::setCurrentIndex);
@@ -21,7 +24,7 @@ MainWindow::MainWindow(QWidget* parent): QMainWindow(parent) {
     padTimer_.start(1000);
     pollGamepads();
 
-    spdlog::info("[ui] MainWindow init");
+    spdlog::info("[ui] MainWindow init bits={:#x}", recordingDeviceBits());
 }
 
 MainWindow::~MainWindow() {
@@ -58,6 +61,43 @@ void MainWindow::setupChrome() {
     ui.hintLog->setStyleSheet(QStringLiteral("color: #888;"));
 
     statusBar()->showMessage(QStringLiteral("就绪"));
+}
+
+void MainWindow::setupRecordTargets() {
+    if (!ui.recordKeyboard || !ui.recordMouse || !ui.recordGamepad) {
+        spdlog::error("[ui] record target checkboxes missing, rebuild MainWindow.ui");
+        return;
+    }
+    appConfig_ = AppConfig::load();
+    applyRecordTargetsToUi();
+    connect(ui.recordKeyboard, &QCheckBox::toggled, this, &MainWindow::onRecordTargetChanged);
+    connect(ui.recordMouse, &QCheckBox::toggled, this, &MainWindow::onRecordTargetChanged);
+    connect(ui.recordGamepad, &QCheckBox::toggled, this, &MainWindow::onRecordTargetChanged);
+}
+
+void MainWindow::applyRecordTargetsToUi() {
+    const QSignalBlocker b1(ui.recordKeyboard);
+    const QSignalBlocker b2(ui.recordMouse);
+    const QSignalBlocker b3(ui.recordGamepad);
+    ui.recordKeyboard->setChecked(appConfig_.recordKeyboard);
+    ui.recordMouse->setChecked(appConfig_.recordMouse);
+    ui.recordGamepad->setChecked(appConfig_.recordGamepad);
+}
+
+uint16_t MainWindow::recordingDeviceBits() const {
+    return appConfig_.recordingDeviceBits();
+}
+
+void MainWindow::onRecordTargetChanged() {
+    appConfig_.recordKeyboard = ui.recordKeyboard->isChecked();
+    appConfig_.recordMouse = ui.recordMouse->isChecked();
+    appConfig_.recordGamepad = ui.recordGamepad->isChecked();
+    if (appConfig_.recordingDeviceBits() == 0) {
+        spdlog::warn("[ui] record targets empty, keep last valid");
+        applyRecordTargetsToUi();
+        return;
+    }
+    appConfig_.save();
 }
 
 void MainWindow::pollGamepads() {

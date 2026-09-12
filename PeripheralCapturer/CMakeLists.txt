@@ -29,6 +29,8 @@ add_executable (PeripheralCapturer
     Input/QueuePresets.h
     Input/InputPipeline.h
     Input/InputPipeline.cpp
+    storage/AppConfig.h
+    storage/AppConfig.cpp
     storage/Database.h
     storage/Database.cpp
     storage/RecordingLayout.h

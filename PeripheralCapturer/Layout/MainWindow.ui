@@ -115,11 +115,57 @@
         <item>
          <widget class="QLabel" name="hintDevices">
           <property name="text">
-           <string>识别已连接手柄。Xbox 走 XInput 槽位；其它垫走 HID 枚举。不采集按键。</string>
+           <string>勾选开录时要冻进通道表的设备。只勾键鼠则帧里没有手柄轴；只勾手柄则不进键鼠。列表仅显示已连接垫，不采集按键。</string>
           </property>
           <property name="wordWrap">
            <bool>true</bool>
           </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="recordTargets">
+          <property name="title">
+           <string>本场要录的设备</string>
+          </property>
+          <layout class="QHBoxLayout" name="layoutRecordTargets">
+           <item>
+            <widget class="QCheckBox" name="recordKeyboard">
+             <property name="text">
+              <string>键盘</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="recordMouse">
+             <property name="text">
+              <string>鼠标</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="recordGamepad">
+             <property name="text">
+              <string>手柄（XInput）</string>
+             </property>
+             <property name="checked">
+              <bool>false</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="recordTargetsSpacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </spacer>
+           </item>
+          </layout>
          </widget>
         </item>
         <item>
