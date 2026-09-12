@@ -31,6 +31,9 @@ add_executable (PeripheralCapturer
     Input/InputPipeline.cpp
     storage/Database.h
     storage/Database.cpp
+    storage/RecordingLayout.h
+    storage/FrameBatchWriter.h
+    storage/FrameBatchWriter.cpp
 )
 
 target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog Xinput dwmapi)

@@ -1,8 +1,8 @@
 #include "Database.h"
+#include "RecordingLayout.h"
 
 #include <QDateTime>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -13,13 +13,12 @@
 #include <optional>
 #include <spdlog/spdlog.h>
 
-// 表结构见 docs/DatabaseDesign.md。
-// frame_data / axis_samples 用 BLOB + run_len，省的是「每帧每键一行」的库体积。
+// 表结构见 docs/DatabaseSchema.md。frame_data 一行一帧：frame + blob，批量 INSERT。
 
 namespace {
 
 constexpr auto kConnection = "pc";
-constexpr int kSchemaVersion = 1;
+constexpr int kSchemaVersion = 4;
 
 const char* kCreateStatements[] = {
     R"SQL(CREATE TABLE IF NOT EXISTS schema_version (
@@ -36,84 +35,36 @@ const char* kCreateStatements[] = {
         native_usage INTEGER,
         native_vk INTEGER,
         default_label TEXT NOT NULL,
-        origin TEXT NOT NULL DEFAULT 'user',
-        notes TEXT,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+        origin TEXT NOT NULL DEFAULT 'user'
     ))SQL",
     R"SQL(CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         display_name TEXT NOT NULL,
         start_time INTEGER NOT NULL,
         end_time INTEGER,
-        fps INTEGER NOT NULL DEFAULT 60,
+        fps INTEGER NOT NULL,
         total_frames INTEGER NOT NULL DEFAULT 0,
-        total_events INTEGER NOT NULL DEFAULT 0,
-        format_version INTEGER NOT NULL DEFAULT 1,
-        event_log_path TEXT NOT NULL,
-        recording_config_snapshot TEXT NOT NULL,
-        profile_name_snapshot TEXT,
-        note TEXT,
-        created_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now')),
-        updated_at INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
-    ))SQL",
-    R"SQL(CREATE TABLE IF NOT EXISTS session_keys (
-        session_id INTEGER NOT NULL,
-        key_index INTEGER NOT NULL,
-        key_code_id INTEGER NOT NULL,
-        PRIMARY KEY (session_id, key_index),
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-        FOREIGN KEY (key_code_id) REFERENCES key_codes(id)
-    ))SQL",
-    R"SQL(CREATE TABLE IF NOT EXISTS session_axes (
-        session_id INTEGER NOT NULL,
-        axis_index INTEGER NOT NULL,
-        key_code_id INTEGER NOT NULL,
-        PRIMARY KEY (session_id, axis_index),
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-        FOREIGN KEY (key_code_id) REFERENCES key_codes(id)
+        device_bits INTEGER NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT ''
     ))SQL",
     R"SQL(CREATE TABLE IF NOT EXISTS frame_data (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id INTEGER NOT NULL,
-        start_frame INTEGER NOT NULL,
-        run_len INTEGER NOT NULL,
-        state_blob BLOB NOT NULL,
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-        UNIQUE(session_id, start_frame)
-    ))SQL", // 数字通道：bitset BLOB，run_len 为连续相同状态的帧数
-    R"SQL(CREATE TABLE IF NOT EXISTS axis_samples (
-        session_id INTEGER NOT NULL,
-        start_frame INTEGER NOT NULL,
-        run_len INTEGER NOT NULL,
-        values_blob BLOB NOT NULL,
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-        UNIQUE(session_id, start_frame)
-    ))SQL", // 线性通道：float32 向量 BLOB，RLE 对齐 frame_data
+        frame INTEGER NOT NULL,
+        blob BLOB NOT NULL,
+        PRIMARY KEY (session_id, frame),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    ))SQL",
     R"SQL(CREATE TABLE IF NOT EXISTS markers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
         session_id INTEGER NOT NULL,
-        frame_index INTEGER NOT NULL,
+        frame INTEGER NOT NULL,
         name TEXT NOT NULL,
         note TEXT NOT NULL DEFAULT '',
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-        UNIQUE(session_id, frame_index, name)
-    ))SQL",
-    R"SQL(CREATE TABLE IF NOT EXISTS tags (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        tag TEXT NOT NULL UNIQUE
-    ))SQL",
-    R"SQL(CREATE TABLE IF NOT EXISTS session_tags (
-        session_id INTEGER NOT NULL,
-        tag_id INTEGER NOT NULL,
-        PRIMARY KEY (session_id, tag_id),
-        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-        FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
+        PRIMARY KEY (session_id, frame, name),
+        FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     ))SQL",
     "CREATE INDEX IF NOT EXISTS idx_sessions_start ON sessions(start_time DESC)",
-    "CREATE INDEX IF NOT EXISTS idx_markers_session ON markers(session_id, frame_index)",
     "CREATE INDEX IF NOT EXISTS idx_key_codes_native_vk ON key_codes(kind, native_vk)",
-    "CREATE INDEX IF NOT EXISTS idx_key_codes_hid ON key_codes(native_usage_page, native_usage)",
 };
 
 struct BuiltinKey {
@@ -127,24 +78,88 @@ struct BuiltinKey {
 };
 
 const BuiltinKey kBuiltins[] = {
-    {"w", "keyboard", "digital", "W", std::nullopt, std::nullopt, 0x57},
-    {"a", "keyboard", "digital", "A", std::nullopt, std::nullopt, 0x41},
-    {"s", "keyboard", "digital", "S", std::nullopt, std::nullopt, 0x53},
-    {"d", "keyboard", "digital", "D", std::nullopt, std::nullopt, 0x44},
     {"space", "keyboard", "digital", "Space", std::nullopt, std::nullopt, 0x20},
-    {"shift-left", "keyboard", "digital", "Shift", std::nullopt, std::nullopt, 0xA0},
+    {"shift-left", "keyboard", "digital", "Shift L", std::nullopt, std::nullopt, 0xA0},
+    {"shift-right", "keyboard", "digital", "Shift R", std::nullopt, std::nullopt, 0xA1},
+    {"ctrl-left", "keyboard", "digital", "Ctrl L", std::nullopt, std::nullopt, 0xA2},
+    {"ctrl-right", "keyboard", "digital", "Ctrl R", std::nullopt, std::nullopt, 0xA3},
+    {"alt-left", "keyboard", "digital", "Alt L", std::nullopt, std::nullopt, 0xA4},
+    {"alt-right", "keyboard", "digital", "Alt R", std::nullopt, std::nullopt, 0xA5},
+    {"tab", "keyboard", "digital", "Tab", std::nullopt, std::nullopt, 0x09},
+    {"caps-lock", "keyboard", "digital", "Caps", std::nullopt, std::nullopt, 0x14},
+    {"escape", "keyboard", "digital", "Esc", std::nullopt, std::nullopt, 0x1B},
+    {"enter", "keyboard", "digital", "Enter", std::nullopt, std::nullopt, 0x0D},
+    {"backspace", "keyboard", "digital", "Backspace", std::nullopt, std::nullopt, 0x08},
+    {"win-left", "keyboard", "digital", "Win L", std::nullopt, std::nullopt, 0x5B},
+    {"win-right", "keyboard", "digital", "Win R", std::nullopt, std::nullopt, 0x5C},
+    {"menu", "keyboard", "digital", "Menu", std::nullopt, std::nullopt, 0x5D},
+    {"insert", "keyboard", "digital", "Ins", std::nullopt, std::nullopt, 0x2D},
+    {"delete", "keyboard", "digital", "Del", std::nullopt, std::nullopt, 0x2E},
+    {"home", "keyboard", "digital", "Home", std::nullopt, std::nullopt, 0x24},
+    {"end", "keyboard", "digital", "End", std::nullopt, std::nullopt, 0x23},
+    {"page-up", "keyboard", "digital", "PgUp", std::nullopt, std::nullopt, 0x21},
+    {"page-down", "keyboard", "digital", "PgDn", std::nullopt, std::nullopt, 0x22},
+    {"arrow-left", "keyboard", "digital", "Left", std::nullopt, std::nullopt, 0x25},
+    {"arrow-up", "keyboard", "digital", "Up", std::nullopt, std::nullopt, 0x26},
+    {"arrow-right", "keyboard", "digital", "Right", std::nullopt, std::nullopt, 0x27},
+    {"arrow-down", "keyboard", "digital", "Down", std::nullopt, std::nullopt, 0x28},
+    {"print-screen", "keyboard", "digital", "PrtSc", std::nullopt, std::nullopt, 0x2C},
+    {"scroll-lock", "keyboard", "digital", "ScrLk", std::nullopt, std::nullopt, 0x91},
+    {"pause", "keyboard", "digital", "Pause", std::nullopt, std::nullopt, 0x13},
+    {"num-lock", "keyboard", "digital", "NumLk", std::nullopt, std::nullopt, 0x90},
+    {"semicolon", "keyboard", "digital", ";", std::nullopt, std::nullopt, 0xBA},
+    {"equal", "keyboard", "digital", "=", std::nullopt, std::nullopt, 0xBB},
+    {"comma", "keyboard", "digital", ",", std::nullopt, std::nullopt, 0xBC},
+    {"minus", "keyboard", "digital", "-", std::nullopt, std::nullopt, 0xBD},
+    {"period", "keyboard", "digital", ".", std::nullopt, std::nullopt, 0xBE},
+    {"slash", "keyboard", "digital", "/", std::nullopt, std::nullopt, 0xBF},
+    {"grave", "keyboard", "digital", "`", std::nullopt, std::nullopt, 0xC0},
+    {"lbracket", "keyboard", "digital", "[", std::nullopt, std::nullopt, 0xDB},
+    {"backslash", "keyboard", "digital", "\\", std::nullopt, std::nullopt, 0xDC},
+    {"rbracket", "keyboard", "digital", "]", std::nullopt, std::nullopt, 0xDD},
+    {"quote", "keyboard", "digital", "'", std::nullopt, std::nullopt, 0xDE},
+    {"numpad-0", "keyboard", "digital", "Num0", std::nullopt, std::nullopt, 0x60},
+    {"numpad-1", "keyboard", "digital", "Num1", std::nullopt, std::nullopt, 0x61},
+    {"numpad-2", "keyboard", "digital", "Num2", std::nullopt, std::nullopt, 0x62},
+    {"numpad-3", "keyboard", "digital", "Num3", std::nullopt, std::nullopt, 0x63},
+    {"numpad-4", "keyboard", "digital", "Num4", std::nullopt, std::nullopt, 0x64},
+    {"numpad-5", "keyboard", "digital", "Num5", std::nullopt, std::nullopt, 0x65},
+    {"numpad-6", "keyboard", "digital", "Num6", std::nullopt, std::nullopt, 0x66},
+    {"numpad-7", "keyboard", "digital", "Num7", std::nullopt, std::nullopt, 0x67},
+    {"numpad-8", "keyboard", "digital", "Num8", std::nullopt, std::nullopt, 0x68},
+    {"numpad-9", "keyboard", "digital", "Num9", std::nullopt, std::nullopt, 0x69},
+    {"numpad-mul", "keyboard", "digital", "Num*", std::nullopt, std::nullopt, 0x6A},
+    {"numpad-add", "keyboard", "digital", "Num+", std::nullopt, std::nullopt, 0x6B},
+    {"numpad-sub", "keyboard", "digital", "Num-", std::nullopt, std::nullopt, 0x6D},
+    {"numpad-dot", "keyboard", "digital", "Num.", std::nullopt, std::nullopt, 0x6E},
+    {"numpad-div", "keyboard", "digital", "Num/", std::nullopt, std::nullopt, 0x6F},
     {"mouse-left", "mouse", "digital", "LMB", std::nullopt, std::nullopt, 0x01},
     {"mouse-right", "mouse", "digital", "RMB", std::nullopt, std::nullopt, 0x02},
+    {"mouse-middle", "mouse", "digital", "MMB", std::nullopt, std::nullopt, 0x04},
+    {"mouse-x1", "mouse", "digital", "X1", std::nullopt, std::nullopt, 0x05},
+    {"mouse-x2", "mouse", "digital", "X2", std::nullopt, std::nullopt, 0x06},
     {"mouse-dx", "mouse", "analog", "Mouse DX", -1.0, 1.0, std::nullopt},
     {"mouse-dy", "mouse", "analog", "Mouse DY", -1.0, 1.0, std::nullopt},
     {"pad-a", "gamepad", "digital", "A", std::nullopt, std::nullopt, std::nullopt},
     {"pad-b", "gamepad", "digital", "B", std::nullopt, std::nullopt, std::nullopt},
     {"pad-x", "gamepad", "digital", "X", std::nullopt, std::nullopt, std::nullopt},
     {"pad-y", "gamepad", "digital", "Y", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-lb", "gamepad", "digital", "LB", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-rb", "gamepad", "digital", "RB", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-start", "gamepad", "digital", "Start", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-back", "gamepad", "digital", "Back", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-ls", "gamepad", "digital", "LS", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-rs", "gamepad", "digital", "RS", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-up", "gamepad", "digital", "Up", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-down", "gamepad", "digital", "Down", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-left", "gamepad", "digital", "Left", std::nullopt, std::nullopt, std::nullopt},
+    {"pad-right", "gamepad", "digital", "Right", std::nullopt, std::nullopt, std::nullopt},
     {"pad-lt", "gamepad", "analog", "LT", 0.0, 1.0, std::nullopt},
     {"pad-rt", "gamepad", "analog", "RT", 0.0, 1.0, std::nullopt},
     {"pad-lx", "gamepad", "analog", "Left X", -1.0, 1.0, std::nullopt},
     {"pad-ly", "gamepad", "analog", "Left Y", -1.0, 1.0, std::nullopt},
+    {"pad-rx", "gamepad", "analog", "Right X", -1.0, 1.0, std::nullopt},
+    {"pad-ry", "gamepad", "analog", "Right Y", -1.0, 1.0, std::nullopt},
 };
 
 QSqlDatabase db() {
@@ -303,32 +318,63 @@ std::optional<KeyCodeRecord> Database::findByNativeHid(int usagePage, int usage)
     return readKeyCode(q);
 }
 
+bool Database::resetSchema() {
+    spdlog::warn("[db] dropping old schema, all sessions discarded");
+    const char* drops[] = {
+        "DROP TABLE IF EXISTS session_tags",
+        "DROP TABLE IF EXISTS tags",
+        "DROP TABLE IF EXISTS markers",
+        "DROP TABLE IF EXISTS axis_samples",
+        "DROP TABLE IF EXISTS frame_data",
+        "DROP TABLE IF EXISTS session_axes",
+        "DROP TABLE IF EXISTS session_keys",
+        "DROP TABLE IF EXISTS sessions",
+        "DROP TABLE IF EXISTS key_codes",
+        "DROP TABLE IF EXISTS schema_version",
+    };
+    for (const char* sql : drops) {
+        if (!execSql(QString::fromUtf8(sql))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool Database::migrate() {
+    QSqlQuery q(db());
+    int version = 0;
+    const bool hasVersion = q.exec(QStringLiteral("SELECT version FROM schema_version LIMIT 1")) &&
+                            q.next();
+    if (hasVersion) {
+        version = q.value(0).toInt();
+    }
+    if (version > kSchemaVersion) {
+        spdlog::error("[db] schema version {} newer than binary {}", version, kSchemaVersion);
+        return false;
+    }
+    if (version != 0 && version != kSchemaVersion) {
+        if (!resetSchema()) {
+            return false;
+        }
+        version = 0;
+    }
+
     for (const char* sql : kCreateStatements) {
         if (!execSql(QString::fromUtf8(sql))) {
             return false;
         }
     }
-    QSqlQuery q(db());
-    if (!q.exec(QStringLiteral("SELECT version FROM schema_version LIMIT 1"))) {
-        spdlog::error("[db] read schema_version failed: {}", q.lastError().text().toStdString());
-        return false;
-    }
-    if (!q.next()) {
+    if (version == 0) {
         QSqlQuery ins(db());
         ins.prepare(QStringLiteral("INSERT INTO schema_version (version) VALUES (?)"));
         ins.addBindValue(kSchemaVersion);
         if (!ins.exec()) {
-            spdlog::error("[db] insert schema_version failed: {}", ins.lastError().text().toStdString());
+            spdlog::error("[db] insert schema_version failed: {}",
+                          ins.lastError().text().toStdString());
             return false;
         }
         spdlog::info("[db] schema initialized version={}", kSchemaVersion);
         return true;
-    }
-    const int version = q.value(0).toInt();
-    if (version > kSchemaVersion) {
-        spdlog::error("[db] schema version {} newer than binary {}", version, kSchemaVersion);
-        return false;
     }
     spdlog::info("[db] schema version={}", version);
     return true;
@@ -341,20 +387,55 @@ bool Database::seedBuiltins() {
         "(key_id, kind, value_kind, range_min, range_max, native_vk, default_label, origin) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, 'builtin')"));
     int inserted = 0;
-    for (const auto& row : kBuiltins) {
-        q.bindValue(0, QLatin1String(row.keyId));
-        q.bindValue(1, QLatin1String(row.kind));
-        q.bindValue(2, QLatin1String(row.valueKind));
-        q.bindValue(3, row.min ? QVariant(*row.min) : QVariant());
-        q.bindValue(4, row.max ? QVariant(*row.max) : QVariant());
-        q.bindValue(5, row.nativeVk ? QVariant(*row.nativeVk) : QVariant());
-        q.bindValue(6, QLatin1String(row.label));
+    const auto insertRow = [&](const QString& keyId, const char* kind, const char* valueKind,
+                               const QVariant& min, const QVariant& max, const QVariant& vk,
+                               const QString& label) -> bool {
+        q.bindValue(0, keyId);
+        q.bindValue(1, QLatin1String(kind));
+        q.bindValue(2, QLatin1String(valueKind));
+        q.bindValue(3, min);
+        q.bindValue(4, max);
+        q.bindValue(5, vk);
+        q.bindValue(6, label);
         if (!q.exec()) {
-            spdlog::error("[db] seed {} failed: {}", row.keyId, q.lastError().text().toStdString());
+            spdlog::error("[db] seed {} failed: {}", keyId.toStdString(),
+                          q.lastError().text().toStdString());
             return false;
         }
         if (q.numRowsAffected() > 0) {
             ++inserted;
+        }
+        return true;
+    };
+
+    for (char c = 'a'; c <= 'z'; ++c) {
+        const QString id = QString(QLatin1Char(c));
+        const QString label = QString(QLatin1Char(static_cast<char>(c - 'a' + 'A')));
+        if (!insertRow(id, "keyboard", "digital", QVariant(), QVariant(),
+                       0x41 + (c - 'a'), label)) {
+            return false;
+        }
+    }
+    for (int digit = 0; digit <= 9; ++digit) {
+        const QString id = QString::number(digit);
+        if (!insertRow(id, "keyboard", "digital", QVariant(), QVariant(), 0x30 + digit, id)) {
+            return false;
+        }
+    }
+    for (int f = 1; f <= 12; ++f) {
+        const QString id = QStringLiteral("f%1").arg(f);
+        if (!insertRow(id, "keyboard", "digital", QVariant(), QVariant(), 0x70 + (f - 1),
+                       id.toUpper())) {
+            return false;
+        }
+    }
+    for (const auto& row : kBuiltins) {
+        if (!insertRow(QLatin1String(row.keyId), row.kind, row.valueKind,
+                       row.min ? QVariant(*row.min) : QVariant(),
+                       row.max ? QVariant(*row.max) : QVariant(),
+                       row.nativeVk ? QVariant(*row.nativeVk) : QVariant(),
+                       QLatin1String(row.label))) {
+            return false;
         }
     }
     spdlog::info("[db] builtin key_codes ready inserted={}", inserted);
@@ -370,11 +451,8 @@ std::optional<RecordingSession> Database::beginRecording(const BeginRecordingReq
         spdlog::error("[db] beginRecording: invalid fps={}", req.fps);
         return std::nullopt;
     }
-
-    const QString appDir = QFileInfo(db().databaseName()).absolutePath();
-    const QString recDir = appDir + QStringLiteral("/recordings");
-    if (!QDir().mkpath(recDir)) {
-        spdlog::error("[db] cannot create recordings dir {}", recDir.toStdString());
+    if (req.deviceBits == 0) {
+        spdlog::error("[db] beginRecording: device_bits=0");
         return std::nullopt;
     }
 
@@ -384,10 +462,6 @@ std::optional<RecordingSession> Database::beginRecording(const BeginRecordingReq
     if (display.isEmpty()) {
         display = now.toString(QStringLiteral("yyyyMMdd-HHmmss"));
     }
-    const QString relative =
-        QStringLiteral("recordings/%1.bin").arg(now.toString(QStringLiteral("yyyyMMdd-HHmmss-zzz")));
-    const QString absolute = appDir + QLatin1Char('/') + relative;
-
     QSqlDatabase database = db();
     if (!database.transaction()) {
         spdlog::error("[db] begin transaction failed: {}", database.lastError().text().toStdString());
@@ -396,16 +470,12 @@ std::optional<RecordingSession> Database::beginRecording(const BeginRecordingReq
 
     QSqlQuery q(database);
     q.prepare(QStringLiteral(
-        "INSERT INTO sessions (display_name, start_time, fps, event_log_path, "
-        "recording_config_snapshot, profile_name_snapshot) "
-        "VALUES (?, ?, ?, ?, ?, ?)"));
+        "INSERT INTO sessions (display_name, start_time, fps, device_bits) "
+        "VALUES (?, ?, ?, ?)"));
     q.addBindValue(display);
     q.addBindValue(startMs);
     q.addBindValue(req.fps);
-    q.addBindValue(relative);
-    q.addBindValue(req.recordingConfigJson.isEmpty() ? QStringLiteral("{}")
-                                                     : req.recordingConfigJson);
-    q.addBindValue(req.profileNameSnapshot);
+    q.addBindValue(static_cast<int>(req.deviceBits));
     if (!q.exec()) {
         spdlog::error("[db] insert session failed: {}", q.lastError().text().toStdString());
         database.rollback();
@@ -415,40 +485,31 @@ std::optional<RecordingSession> Database::beginRecording(const BeginRecordingReq
     RecordingSession out;
     out.sessionId = q.lastInsertId().toLongLong();
     out.fps = req.fps;
-    out.eventLogRelative = relative;
-    out.eventLogAbsolute = absolute;
-
-    QFile logFile(absolute);
-    if (!logFile.open(QIODevice::WriteOnly)) {
-        spdlog::error("[db] create event log failed path={} err={}", absolute.toStdString(),
-                      logFile.errorString().toStdString());
-        database.rollback();
-        return std::nullopt;
-    }
-    logFile.close();
+    out.layout.deviceBits = req.deviceBits;
+    out.layout.digitalCount = RecLayout::digitalCount(req.deviceBits);
+    out.layout.analogCount = RecLayout::analogCount(req.deviceBits);
 
     if (!database.commit()) {
         spdlog::error("[db] commit session failed: {}", database.lastError().text().toStdString());
         return std::nullopt;
     }
 
-    spdlog::info("[db] recording started id={} fps={} log={}", out.sessionId, out.fps,
-                 relative.toStdString());
+    spdlog::info("[db] recording started id={} fps={} bits={:#x} digital={} analog={}",
+                 out.sessionId, out.fps, req.deviceBits, out.layout.digitalCount,
+                 out.layout.analogCount);
     return out;
 }
 
-bool Database::finishRecording(qint64 sessionId, qint64 endTimeMs, qint64 totalEvents,
-                               int totalFrames) {
+bool Database::finishRecording(qint64 sessionId, qint64 endTimeMs, int totalFrames) {
     if (!isOpen()) {
         spdlog::error("[db] finishRecording: database not open");
         return false;
     }
     QSqlQuery q(db());
     q.prepare(QStringLiteral(
-        "UPDATE sessions SET end_time = ?, total_events = ?, total_frames = ?, "
-        "updated_at = strftime('%s', 'now') WHERE id = ? AND end_time IS NULL"));
+        "UPDATE sessions SET end_time = ?, total_frames = ? "
+        "WHERE id = ? AND end_time IS NULL"));
     q.addBindValue(endTimeMs);
-    q.addBindValue(totalEvents);
     q.addBindValue(totalFrames);
     q.addBindValue(sessionId);
     if (!q.exec()) {
@@ -459,8 +520,7 @@ bool Database::finishRecording(qint64 sessionId, qint64 endTimeMs, qint64 totalE
         spdlog::warn("[db] finishRecording id={} not found or already finished", sessionId);
         return false;
     }
-    spdlog::info("[db] recording finished id={} events={} frames={}", sessionId, totalEvents,
-                 totalFrames);
+    spdlog::info("[db] recording finished id={} frames={}", sessionId, totalFrames);
     return true;
 }
 
@@ -475,7 +535,7 @@ bool Database::addMarker(qint64 sessionId, quint32 frameIndex, const QString& na
     }
     QSqlQuery q(db());
     q.prepare(QStringLiteral(
-        "INSERT INTO markers (session_id, frame_index, name) VALUES (?, ?, ?)"));
+        "INSERT INTO markers (session_id, frame, name) VALUES (?, ?, ?)"));
     q.addBindValue(sessionId);
     q.addBindValue(static_cast<qint64>(frameIndex));
     q.addBindValue(name);
@@ -486,63 +546,6 @@ bool Database::addMarker(qint64 sessionId, quint32 frameIndex, const QString& na
     spdlog::info("[db] marker session={} frame={} name={}", sessionId, frameIndex,
                  name.toStdString());
     return true;
-}
-
-std::optional<int> Database::bindSessionControl(qint64 sessionId, const QString& keyId) {
-    if (!isOpen()) {
-        spdlog::error("[db] bindSessionControl: database not open");
-        return std::nullopt;
-    }
-    QSqlQuery find(db());
-    find.prepare(QStringLiteral(
-        "SELECT id, value_kind FROM key_codes WHERE key_id = ?"));
-    find.addBindValue(keyId);
-    if (!find.exec() || !find.next()) {
-        spdlog::warn("[db] bindSessionControl unknown key_id={}", keyId.toStdString());
-        return std::nullopt;
-    }
-    const qint64 codeId = find.value(0).toLongLong();
-    const QString valueKind = find.value(1).toString();
-    const bool analog = valueKind == QLatin1String("analog");
-    const char* table = analog ? "session_axes" : "session_keys";
-    const char* indexCol = analog ? "axis_index" : "key_index";
-
-    QSqlQuery existing(db());
-    existing.prepare(QStringLiteral("SELECT %1 FROM %2 WHERE session_id = ? AND key_code_id = ?")
-                         .arg(QLatin1String(indexCol), QLatin1String(table)));
-    existing.addBindValue(sessionId);
-    existing.addBindValue(codeId);
-    if (!existing.exec()) {
-        spdlog::error("[db] bind lookup failed: {}", existing.lastError().text().toStdString());
-        return std::nullopt;
-    }
-    if (existing.next()) {
-        return existing.value(0).toInt();
-    }
-
-    QSqlQuery next(db());
-    next.prepare(QStringLiteral("SELECT COALESCE(MAX(%1), -1) + 1 FROM %2 WHERE session_id = ?")
-                     .arg(QLatin1String(indexCol), QLatin1String(table)));
-    next.addBindValue(sessionId);
-    if (!next.exec() || !next.next()) {
-        spdlog::error("[db] next index failed: {}", next.lastError().text().toStdString());
-        return std::nullopt;
-    }
-    const int index = next.value(0).toInt();
-
-    QSqlQuery ins(db());
-    ins.prepare(QStringLiteral("INSERT INTO %1 (session_id, %2, key_code_id) VALUES (?, ?, ?)")
-                    .arg(QLatin1String(table), QLatin1String(indexCol)));
-    ins.addBindValue(sessionId);
-    ins.addBindValue(index);
-    ins.addBindValue(codeId);
-    if (!ins.exec()) {
-        spdlog::error("[db] bind insert failed: {}", ins.lastError().text().toStdString());
-        return std::nullopt;
-    }
-    spdlog::info("[db] bound {} key_id={} index={}", analog ? "axis" : "key",
-                 keyId.toStdString(), index);
-    return index;
 }
 
 std::optional<qint64> Database::ensureCaptureKey(const QString& keyId,
@@ -634,59 +637,52 @@ QByteArray Database::packAnalogBlob(const std::vector<float>& normalizedValues) 
     return blob;
 }
 
-bool Database::appendDigitalRun(qint64 sessionId, int startFrame, int runLen,
-                                const QByteArray& stateBlob) {
-    if (!isOpen()) {
-        spdlog::error("[db] appendDigitalRun: database not open");
-        return false;
-    }
-    if (runLen < 1 || stateBlob.isEmpty() || startFrame < 0) {
-        spdlog::warn("[db] appendDigitalRun invalid session={} start={} len={} blob={}",
-                     sessionId, startFrame, runLen, stateBlob.size());
-        return false;
-    }
-    QSqlQuery q(db());
-    q.prepare(QStringLiteral(
-        "INSERT INTO frame_data (session_id, start_frame, run_len, state_blob) "
-        "VALUES (?, ?, ?, ?)"));
-    q.addBindValue(sessionId);
-    q.addBindValue(startFrame);
-    q.addBindValue(runLen);
-    q.addBindValue(stateBlob);
-    if (!q.exec()) {
-        spdlog::error("[db] appendDigitalRun failed: {}", q.lastError().text().toStdString());
-        return false;
-    }
-    return true;
+QByteArray Database::packFrameBlob(const QByteArray& digital, const QByteArray& analog) {
+    QByteArray blob;
+    blob.reserve(digital.size() + analog.size());
+    blob.append(digital);
+    blob.append(analog);
+    return blob;
 }
 
-bool Database::appendAnalogRun(qint64 sessionId, int startFrame, int runLen,
-                               const QByteArray& valuesBlob) {
+bool Database::appendFrames(qint64 sessionId, const std::vector<FrameRow>& frames) {
     if (!isOpen()) {
-        spdlog::error("[db] appendAnalogRun: database not open");
+        spdlog::error("[db] appendFrames: database not open");
         return false;
     }
-    if (runLen < 1 || valuesBlob.isEmpty() || startFrame < 0) {
-        spdlog::warn("[db] appendAnalogRun invalid session={} start={} len={} blob={}",
-                     sessionId, startFrame, runLen, valuesBlob.size());
+    if (frames.empty()) {
+        return true;
+    }
+    QSqlDatabase database = db();
+    if (!database.transaction()) {
+        spdlog::error("[db] appendFrames begin failed: {}",
+                      database.lastError().text().toStdString());
         return false;
     }
-    if ((valuesBlob.size() % static_cast<int>(sizeof(float))) != 0) {
-        spdlog::error("[db] appendAnalogRun blob size {} not multiple of float32",
-                      valuesBlob.size());
-        return false;
-    }
-    QSqlQuery q(db());
+    QSqlQuery q(database);
     q.prepare(QStringLiteral(
-        "INSERT INTO axis_samples (session_id, start_frame, run_len, values_blob) "
-        "VALUES (?, ?, ?, ?)"));
-    q.addBindValue(sessionId);
-    q.addBindValue(startFrame);
-    q.addBindValue(runLen);
-    q.addBindValue(valuesBlob);
-    if (!q.exec()) {
-        spdlog::error("[db] appendAnalogRun failed: {}", q.lastError().text().toStdString());
+        "INSERT INTO frame_data (session_id, frame, blob) VALUES (?, ?, ?)"));
+    for (const auto& row : frames) {
+        if (row.frame < 0 || row.blob.isEmpty()) {
+            spdlog::warn("[db] appendFrames skip frame={} blob={}", row.frame, row.blob.size());
+            database.rollback();
+            return false;
+        }
+        q.bindValue(0, sessionId);
+        q.bindValue(1, row.frame);
+        q.bindValue(2, row.blob);
+        if (!q.exec()) {
+            spdlog::error("[db] appendFrames insert failed: {}",
+                          q.lastError().text().toStdString());
+            database.rollback();
+            return false;
+        }
+    }
+    if (!database.commit()) {
+        spdlog::error("[db] appendFrames commit failed: {}",
+                      database.lastError().text().toStdString());
         return false;
     }
+    spdlog::debug("[db] appendFrames session={} count={}", sessionId, frames.size());
     return true;
 }
