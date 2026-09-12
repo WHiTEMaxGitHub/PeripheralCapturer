@@ -17,6 +17,9 @@ struct DeviceInfo {
 class DeviceRegistry {
 public:
     std::string getOrCreateRawDevice(HANDLE hDevice, InputDeviceType type);
+    // 拔出后必须删行：Windows 可能把同一个 HANDLE 数值分给下一台设备。
+    void erase(HANDLE hDevice);
+    bool contains(HANDLE hDevice) const;
     std::vector<DeviceInfo> snapshot() const;
 	// 获取XInput设备ID
     inline std::string getXInputDeviceID(DWORD slot) {

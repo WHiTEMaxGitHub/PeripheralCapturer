@@ -11,10 +11,18 @@
 #include <cstdint>
 #include <vector>
 
-// 捕获线程（WM_INPUT）→ 处理线程 的载荷。
+// 捕获线程 → 处理线程。插拔也走这条队列，避免 WndProc 碰 Registry。
+enum class RawPacketKind : uint8_t {
+    Input,
+    DeviceArrival,
+    DeviceRemoval,
+};
+
 // 只拷系统包 + 入队前打好的微秒时间戳。禁止在此解析 HID、差分、写盘。
 // 字段含义与接线见 docs/InputQueue.md。
 struct RawInputPacket {
+    RawPacketKind kind = RawPacketKind::Input;
+
     // 相对 Timer 起点的微秒。必须在 tryPush 之前用 Timer::nowUs() 填写。
     // 若等处理线程弹出再计时，队列等待会被算进「按键发生时刻」。
     int64_t timestampUs = 0;

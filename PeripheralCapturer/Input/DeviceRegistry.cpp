@@ -71,6 +71,17 @@ std::string DeviceRegistry::getOrCreateRawDevice(HANDLE hDevice,
     return info.deviceID;
 }
 
+void DeviceRegistry::erase(HANDLE hDevice) {
+    if (!hDevice) {
+        return;
+    }
+    rawDevices_.erase(hDevice);
+}
+
+bool DeviceRegistry::contains(HANDLE hDevice) const {
+    return hDevice && rawDevices_.contains(hDevice);
+}
+
 std::vector<DeviceInfo> DeviceRegistry::snapshot() const {
     std::vector<DeviceInfo> out;
     out.reserve(rawDevices_.size());

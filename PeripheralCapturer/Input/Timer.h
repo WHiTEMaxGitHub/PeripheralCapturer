@@ -1,22 +1,24 @@
 ﻿#pragma once
-#include <atomic>
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
 #include "InputEvent.h"
 
-#include <Windows.h>
+#include <cstdint>
+
+// 进程内一份 QPC 时钟。定义必须在 cpp：头文件 static 会让每个 TU 各有一份频率。
 namespace Timer {
-static std::atomic<uint64_t> global_sequence{0}; // 全局序列号
-/* QPC(Query Performance Counter) 是Windows提供的高精度单调递增的计时器 */
-static LARGE_INTEGER global_qpcFreq{};    // qpc频率（单位Hz）
-static LARGE_INTEGER global_startCount{}; // 起始qpc计数器的值
+
 void init();
+
+// 本场归帧用的 fps。没开录时用默认 60；开录后再改，不要写死在 MakeBaseEvent 里。
+void setSessionFps(int fps);
+int sessionFps();
+
 int64_t nowUs();
-uint32_t ToFrameIndex(int64_t timeStamp, int fps = 100);
+uint32_t ToFrameIndex(int64_t timestampUs, int fps);
+
+// XInput / 合成：时间用当下 nowUs()。
 InputEvent MakeBaseEvent();
+// 从 Raw 包生成事件：沿用入队前打的时间戳，不要再采一次 QPC。
+InputEvent MakeBaseEvent(int64_t timestampUs);
+
 } // namespace Timer

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
@@ -71,6 +72,21 @@ public:
         std::unique_lock lock(mutex_);
         notEmpty_.wait(lock, [this] { return closed_ || !items_.empty(); });
         if (items_.empty()) {
+            return std::nullopt;
+        }
+        T out = std::move(items_.front());
+        items_.pop_front();
+        notFull_.notify_one();
+        return out;
+    }
+
+    // 等到有数据、close，或超时。超时且未关闭时返回 nullopt，调用方应继续转（例如扫 XInput）。
+    // 已关闭且取尽也是 nullopt，这时应结束循环。
+    std::optional<T> popFor(std::chrono::milliseconds timeout) {
+        std::unique_lock lock(mutex_);
+        const bool ready =
+            notEmpty_.wait_for(lock, timeout, [this] { return closed_ || !items_.empty(); });
+        if (!ready || items_.empty()) {
             return std::nullopt;
         }
         T out = std::move(items_.front());

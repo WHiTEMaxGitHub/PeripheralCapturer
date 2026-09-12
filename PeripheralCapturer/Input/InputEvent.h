@@ -57,7 +57,7 @@ enum class HatDirection : uint8_t {
 	NW,
 };
 
-// 事实源：一条事件 = 某一个 control（或设备插拔）的状态变了。
+// 一条事件 = 某一个 control（或设备插拔）的状态变了。
 // HID 原始 report、绝对鼠标坐标、连发 KeyDown 都不进这里。
 struct InputEvent {
 	uint64_t sequence = 0;		// 全局单调序号；同微秒时按此排序

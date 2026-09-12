@@ -2,6 +2,7 @@
 #include "overlay/PovWindow.h"
 #include "capture/HiddenCaptureWindow.h"
 #include "utils/Logger.h"
+#include "Input/InputPipeline.h"
 #include "Input/Timer.h"
 #include "storage/Database.h"
 
@@ -34,13 +35,15 @@ int main(int argc, char* argv[]) {
     }
 
     // 三扇窗：捕获（不可见）→ 配置 → POV，互不嵌套。
+    InputPipeline pipeline;
     HiddenCaptureWindow capture;
-    if (!capture.create()) {
+    if (!capture.create(pipeline.packets())) {
         spdlog::critical("[app] capture window init failed, abort");
         database.close();
         shutdownLogger();
         return 1;
     }
+    pipeline.start();
 
     MainWindow config;
     config.resize(1280, 720);
@@ -48,13 +51,14 @@ int main(int argc, char* argv[]) {
     spdlog::info("[app] config window shown");
 
     PovWindow pov;
-    pov.show();
     pov.setClickThrough(true);
+    pov.show();
     spdlog::info("[app] pov window shown");
 
     const int code = app.exec();
 
     capture.destroy();
+    pipeline.stop();
     database.close();
     if (code != 0) {
         spdlog::error("[app] exiting code={}", code);
