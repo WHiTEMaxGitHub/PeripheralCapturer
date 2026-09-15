@@ -3,7 +3,7 @@
 #include <QtWebView/QWebView>
 
 // POV：独立置顶 WebView2 壳。画面由 Vue 组件画；C++ 只做置顶和点击穿透。
-// Vite 失败时用 loadHtml 读 qrc 提示页（不能 Navigate qrc:）。
+// Debug 等 Vite :5173 就绪再 Navigate；失败才 loadHtml 离线提示页。
 class PovWindow : public QWebView {
     Q_OBJECT
 
@@ -12,13 +12,14 @@ public:
 
     void setClickThrough(bool enabled);
     bool clickThrough() const { return clickThrough_; }
+    void loadDevPage();
+    void loadOfflineHtml();
 
 protected:
     bool event(QEvent* event) override;
 
 private:
     void applyClickThrough();
-    void loadOfflineHtml();
 
     bool clickThrough_ = true;
     bool loadedOfflineHtml_ = false;

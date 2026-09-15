@@ -10,6 +10,8 @@ add_executable (PeripheralCapturer
     Layout/MainWindow.ui
     overlay/PovWindow.h
     overlay/PovWindow.cpp
+    overlay/ViteDevServer.h
+    overlay/ViteDevServer.cpp
     capture/HiddenCaptureWindow.h
     capture/HiddenCaptureWindow.cpp
     web/pov.qrc
@@ -38,8 +40,10 @@ add_executable (PeripheralCapturer
     storage/FrameBatchWriter.cpp
 )
 
-target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog Xinput dwmapi)
+target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog Xinput dwmapi ws2_32)
 target_include_directories(PeripheralCapturer PRIVATE "${SPDLOG_INCLUDE_DIR}")
+file(TO_CMAKE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/web" PC_WEB_DIR)
+target_compile_definitions(PeripheralCapturer PRIVATE "PC_WEB_SOURCE_DIR=\"${PC_WEB_DIR}\"")
 
 if (WIN32)
   find_program(WINDEPLOYQT_EXECUTABLE

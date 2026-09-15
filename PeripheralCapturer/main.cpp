@@ -1,5 +1,6 @@
 ﻿#include "Layout/MainWindow.h"
 #include "overlay/PovWindow.h"
+#include "overlay/ViteDevServer.h"
 #include "capture/HiddenCaptureWindow.h"
 #include "utils/Logger.h"
 #include "Input/InputPipeline.h"
@@ -25,11 +26,19 @@ int main(int argc, char* argv[]) {
                   qgetenv("WEBVIEW2_DEFAULT_BACKGROUND_COLOR").constData());
     Timer::init();
 
+#ifndef NDEBUG
+    ViteDevServer vite;
+    vite.start();
+#endif
+
     Database database;
     const QString dbPath =
         QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("data.db"));
     if (!database.open(dbPath)) {
         spdlog::critical("[app] database init failed, abort");
+#ifndef NDEBUG
+        vite.stop();
+#endif
         shutdownLogger();
         return 1;
     }
@@ -40,6 +49,9 @@ int main(int argc, char* argv[]) {
     if (!capture.create(pipeline.packets())) {
         spdlog::critical("[app] capture window init failed, abort");
         database.close();
+#ifndef NDEBUG
+        vite.stop();
+#endif
         shutdownLogger();
         return 1;
     }
@@ -51,6 +63,15 @@ int main(int argc, char* argv[]) {
     spdlog::info("[app] config window shown");
 
     PovWindow pov;
+#ifndef NDEBUG
+    QObject::connect(&vite, &ViteDevServer::ready, &pov, [&pov](bool ok) {
+        if (ok) {
+            pov.loadDevPage();
+        } else {
+            pov.loadOfflineHtml();
+        }
+    });
+#endif
     pov.setClickThrough(true);
     pov.show();
     config.setPovWindow(&pov);
@@ -66,6 +87,9 @@ int main(int argc, char* argv[]) {
     } else {
         spdlog::info("[app] exiting code=0");
     }
+#ifndef NDEBUG
+    vite.stop();
+#endif
     shutdownLogger();
     return code;
 }

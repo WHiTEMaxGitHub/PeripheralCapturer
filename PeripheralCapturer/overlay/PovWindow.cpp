@@ -135,6 +135,11 @@ void PovWindow::loadOfflineHtml() {
     loadHtml(html);
 }
 
+void PovWindow::loadDevPage() {
+    loadedOfflineHtml_ = false;
+    setUrl(QUrl(QStringLiteral("http://127.0.0.1:5173/")));
+}
+
 PovWindow::PovWindow(QWindow* parent): QWebView(parent) {
     setTitle(QStringLiteral("POV"));
     setFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint |
@@ -160,8 +165,8 @@ PovWindow::PovWindow(QWindow* parent): QWebView(parent) {
     connect(this, &QWebView::loadingChanged, this, [this](const QWebViewLoadingInfo& info) {
         const auto status = info.status();
         if (status == QWebViewLoadingInfo::LoadStatus::Failed) {
-            spdlog::error("[pov] load failed url={} err={}", info.url().toString().toStdString(),
-                          info.errorString().toStdString());
+            spdlog::warn("[pov] load failed url={} err={}", info.url().toString().toStdString(),
+                         info.errorString().toStdString());
             // 失败回调里同步 loadHtml 会重入 WebView2，等事件转完再换页。
             QTimer::singleShot(0, this, [this] { loadOfflineHtml(); });
         } else if (status == QWebViewLoadingInfo::LoadStatus::Succeeded) {
@@ -179,8 +184,10 @@ PovWindow::PovWindow(QWindow* parent): QWebView(parent) {
         }
     });
 
-    // 边框/HUD 在 Vue 组件里画。WebView2 不能 Navigate qrc:，Vite 挂了才 loadHtml 离线提示页。
-    setUrl(QUrl(QStringLiteral("http://127.0.0.1:5173/")));
+    // Debug：main 等 Vite 就绪再 loadDevPage。Release 直接试 5173，没有则离线页。
+#ifdef NDEBUG
+    loadDevPage();
+#endif
 
     spdlog::info("[pov] window created build={} clickThrough={}", buildKind, clickThrough_);
 }
