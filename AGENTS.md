@@ -38,7 +38,7 @@
 | POV `overlay/PovWindow` | 独立 `QWebView`，只画降频快照 |
 | 捕获 `capture/HiddenCaptureWindow` | `HWND_MESSAGE`，收 `WM_INPUT` |
 
-不要把 POV parent 到配置窗（会白屏盖住 UI）。捕获不要用配置窗 `winId()`。POV 与 Native 用本机 WebSocket，不要 QWebChannel 把 C++ 暴露给 JS。
+不要把 POV parent 到配置窗（会白屏盖住 UI）。捕获不要用配置窗 `winId()`。POV 与 Native 用本机 WebSocket，不要 QWebChannel 把 C++ 暴露给 JS。浮层只吃降频快照；`OverlayHub` 在独立线程推 WS，上一帧没发出去就只留最新一份。
 
 ## 热路径
 
@@ -47,7 +47,7 @@ WM_INPUT：拷包 + 时间戳 + tryPush → 立刻返回
 禁止：wait、解析 HID、写盘、SQLite、spdlog、Qt 信号
 ```
 
-处理线程变成 `InputEvent` 并 `bus.publish`。录制队列 `Block`（常驻 Recorder 线程 pop，空闲丢掉）；捕获 `tryPush` DropOldest；浮层可丢。浮层不要订全量事件，尤其不要全量 `MouseMove`。Recorder 本轮也不收 `MouseMove`。HUD：数字键禁止按下渐变；模拟轴可画成 F–t / 摇杆盘（Profile）。控制热键在 **publish 前**拦掉。
+处理线程变成 `InputEvent` 并 `bus.publish`。录制队列 `Block`（常驻 Recorder 线程 pop，空闲丢掉）；捕获 `tryPush` DropOldest；浮层可丢。浮层不要订全量事件，尤其不要全量 `MouseMove`。Recorder 本轮也不收 `MouseMove`。HUD：数字键禁止按下渐变（WASD/方向键位图瞬时点亮）；模拟轴用 AxisPlot（多序列 F–t）和 StickPad（一组 xy）。控制热键在 **publish 前**拦掉。
 
 ## 存储
 
@@ -68,4 +68,4 @@ WM_INPUT：拷包 + 时间戳 + tryPush → 立刻返回
 
 ## 增量
 
-先对照 `docs/TODO.md` 和专项文档。用户没点名的大块（WS / Vue 画键）不要自行铺开。改完相关行为：初始化/失败分支要有日志；非显然逻辑要有注释。
+先对照 `docs/TODO.md` 和专项文档。用户没点名的大块不要自行铺开。改完相关行为：初始化/失败分支要有日志；非显然逻辑要有注释。

@@ -17,6 +17,8 @@ public:
 
     void start();
     void stop();
+    bool finished() const { return finished_; }
+    bool ok() const { return ok_; }
 
 signals:
     void ready(bool ok);
@@ -36,4 +38,5 @@ private:
     int maxPolls_ = 80;
     bool spawned_ = false;
     bool finished_ = false;
+    bool ok_ = false;
 };

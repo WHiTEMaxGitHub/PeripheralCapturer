@@ -14,7 +14,7 @@ npm install
 npm run dev
 ```
 
-POV 打开 `http://127.0.0.1:5173`，边框和 HUD 是 Vue 组件（`PovShell` / `PovHud`），不要在 C++ 里 `runJavaScript` 拼 DOM。Vite 没起来时落到 `qrc` 离线提示页（没有 Vue）。Release **不**自动拉 Vite。
+POV 打开 `http://127.0.0.1:5173/?ws=...`（Native 把本机 WS 地址塞进 query），边框和 HUD 是 Vue 组件（`PovShell` / `PovHud` / `KeyCluster` / `AxisPlot` / `StickPad`），不要在 C++ 里 `runJavaScript` 拼 DOM。Vite 没起来时落到 `qrc` 离线提示页（没有 Vue）。Release **不**自动拉 Vite。
 
 发布：`npm run build`，再把 `dist/` 打进资源或放到 exe 旁（尚未接进 CMake）。
 
@@ -27,26 +27,31 @@ POV 打开 `http://127.0.0.1:5173`，边框和 HUD 是 Vue 组件（`PovShell` /
 | 数据面 | `ws://127.0.0.1:<port>/?token=...` | Native 推 `snapshot`，可丢旧帧 |
 | 控制面 | 同一条 WS 上的 request/response | 以后：穿透开关、皮肤名等 |
 
-页面用 `?ws=` 覆盖地址，默认 `ws://127.0.0.1:9123/?token=dev`。
+页面用 `?ws=` 覆盖地址。Native 监听 `127.0.0.1` 随机端口并带 token；没有 query 时默认 `ws://127.0.0.1:9123/?token=dev`（只方便浏览器里单独打开 Vite）。
 
-快照形状（可随实现微调，但不要改成全量 InputEvent）：
+快照形状（可随实现微调，但不要改成全量 InputEvent）。`keys` / `axes` 的 id 与 `InputEvent.control` 相同（`w`、`mouse-left`、`pad-a`、`pad-lx`），不要 `Key_W` 那种别名：
 
 ```json
 {
   "type": "snapshot",
   "payload": {
     "frameIndex": 12,
-    "keys": ["Key_W", "Pad_A"],
-    "axes": { "LeftThumbX": 0.2, "LeftTrigger": 0.0 },
+    "keys": ["w", "mouse-left", "pad-a"],
+    "axes": { "pad-lx": 0.2, "pad-ly": -0.1, "pad-lt": 0.4, "pad-rt": 0.0 },
     "mouseDx": 0,
     "mouseDy": 0
   }
 }
 ```
 
-JS 只缓存最新一份，用 `requestAnimationFrame` 画。键位皮肤、颜色仍来自 Profile JSON（以后通过控制面或启动参数下发），不在 Vue 里写死码本。
+JS 只缓存最新一份 snapshot。F–t 短时历史只在 JS 环形缓冲。本轮 HUD 默认组装：
 
-C++ WebSocket 服务尚未实现；现在页面会显示未连接，这是预期。
+- `KeyCluster`：WASD + 方向键位图，按下瞬时点亮
+- `KeyCap`：不在位图里的其它按下键
+- `AxisPlot`：一张图多条序列，默认 `pad-lt` / `pad-rt`
+- `StickPad`：一组 xy，默认左右摇杆各一份
+
+键位皮肤、颜色仍来自 Profile JSON（以后通过控制面或启动参数下发），不在 Vue 里写死码本。
 
 ## 怎么画（视觉状态）
 

@@ -227,6 +227,7 @@ void ViteDevServer::finish(bool ok) {
         return;
     }
     finished_ = true;
+    ok_ = ok;
     pollTimer_.stop();
     emit ready(ok);
 }

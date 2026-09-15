@@ -290,7 +290,7 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 
 ---
 
-## 8. 推荐接线（Recorder / WS 尚未进 main，采集 Pipeline 已接上）
+## 8. 推荐接线（采集 Pipeline / Recorder / overlay WS 已接上）
 
 ```cpp
 // 成员

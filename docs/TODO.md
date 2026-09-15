@@ -35,10 +35,10 @@
 
 ### 3. POV 真能画（v0.3 后半）
 
-- [ ] Native 本机 WebSocket（`127.0.0.1` + token）
-- [ ] `FrameAggregator`：事件归并快照，可丢旧帧；**不**把全量 InputEvent 给 JS
-- [ ] Vue 接 `bridge.ts` 画按下键 / 轴；开发 Vite，发布打 `dist`
-- [ ] 穿透热键：`PovWindow::setClickThrough` 在可点 / 穿透间切换
+- [x] Native 本机 WebSocket（`127.0.0.1` + token）
+- [x] `FrameAggregator`：事件归并快照，可丢旧帧；**不**把全量 InputEvent 给 JS
+- [x] Vue 接 `bridge.ts` 画按下键 / 轴；开发 Vite（发布打 `dist` 尚未进 CMake）
+- [x] 穿透热键：`PovWindow::setClickThrough` 在可点 / 穿透间切换
 - [ ] POV 正式全屏；配置时不要盖住主窗（现在右上角预览可先留着）
 
 ### 4. 手柄走同一条事件流（v0.4）

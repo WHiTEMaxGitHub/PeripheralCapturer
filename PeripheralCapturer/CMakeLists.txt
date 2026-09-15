@@ -10,6 +10,8 @@ add_executable (PeripheralCapturer
     Layout/MainWindow.ui
     overlay/PovWindow.h
     overlay/PovWindow.cpp
+    overlay/OverlayHub.h
+    overlay/OverlayHub.cpp
     overlay/ViteDevServer.h
     overlay/ViteDevServer.cpp
     capture/HiddenCaptureWindow.h

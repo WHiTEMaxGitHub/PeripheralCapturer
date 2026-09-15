@@ -35,7 +35,7 @@ export function connectNative(
   const url = defaultWsUrl();
   const socket = new WebSocket(url);
   socket.onopen = () => onStatus("已连接 " + url);
-  socket.onclose = () => onStatus("未连接（先跑 Vite，Native 的 WS 以后接）");
+  socket.onclose = () => onStatus("未连接");
   socket.onerror = () => onStatus("连接失败");
   socket.onmessage = (ev) => {
     try {

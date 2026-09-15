@@ -553,11 +553,11 @@ void InputPipeline::pollXInput() {
 
         const float nlt = deadzoneTrigger(state.Gamepad.bLeftTrigger);
         const float nrt = deadzoneTrigger(state.Gamepad.bRightTrigger);
-        // XInput 摇杆 Y：上为负。归一化后上为正，和常见游戏坐标一致。
+        // XInput：上为正。不要再取负，否则 HUD / 录制都会上下反。
         const float nlx = deadzoneAxis(state.Gamepad.sThumbLX, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
-        const float nly = -deadzoneAxis(state.Gamepad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
+        const float nly = deadzoneAxis(state.Gamepad.sThumbLY, XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE);
         const float nrx = deadzoneAxis(state.Gamepad.sThumbRX, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
-        const float nry = -deadzoneAxis(state.Gamepad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
+        const float nry = deadzoneAxis(state.Gamepad.sThumbRY, XINPUT_GAMEPAD_RIGHT_THUMB_DEADZONE);
 
         emitAxis("pad-lt", state.Gamepad.bLeftTrigger, nlt, prev.nlt);
         emitAxis("pad-rt", state.Gamepad.bRightTrigger, nrt, prev.nrt);

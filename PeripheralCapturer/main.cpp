@@ -1,5 +1,6 @@
 ﻿#include "Layout/MainWindow.h"
 #include "overlay/PovWindow.h"
+#include "overlay/OverlayHub.h"
 #include "overlay/ViteDevServer.h"
 #include "capture/HiddenCaptureWindow.h"
 #include "utils/Logger.h"
@@ -61,6 +62,19 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     pipeline.setOnToggleRecord([&recorder] { recorder.toggle(); });
+
+    OverlayHub overlay(pipeline.bus());
+    if (!overlay.start()) {
+        spdlog::critical("[app] overlay websocket init failed, abort");
+        capture.destroy();
+        recorder.stop();
+        database.close();
+#ifndef NDEBUG
+        vite.stop();
+#endif
+        shutdownLogger();
+        return 1;
+    }
     pipeline.start();
 
     MainWindow config(database, pipeline, recorder);
@@ -69,6 +83,7 @@ int main(int argc, char* argv[]) {
     spdlog::info("[app] config window shown");
 
     PovWindow pov;
+    pov.setNativeWsUrl(overlay.clientUrl());
 #ifndef NDEBUG
     QObject::connect(&vite, &ViteDevServer::ready, &pov, [&pov](bool ok) {
         if (ok) {
@@ -77,6 +92,13 @@ int main(int argc, char* argv[]) {
             pov.loadOfflineHtml();
         }
     });
+    if (vite.finished()) {
+        if (vite.ok()) {
+            pov.loadDevPage();
+        } else {
+            pov.loadOfflineHtml();
+        }
+    }
 #endif
     pov.setClickThrough(true);
     pov.show();
@@ -95,6 +117,7 @@ int main(int argc, char* argv[]) {
     pipeline.setOnToggleRecord({});
     pipeline.setOnTogglePovClick({});
     capture.destroy();
+    overlay.stop();
     pipeline.stop();
     recorder.stop();
     database.close();

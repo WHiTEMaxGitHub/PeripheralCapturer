@@ -26,6 +26,6 @@ onUnmounted(() => {
 
 <template>
   <PovShell>
-    <PovHud :status="status" :keys="snap ? snap.keys : null" />
+    <PovHud :status="status" :snap="snap" />
   </PovShell>
 </template>

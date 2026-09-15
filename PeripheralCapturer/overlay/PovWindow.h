@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QString>
 #include <QtWebView/QWebView>
 
 // POV：独立置顶 WebView2 壳。画面由 Vue 组件画；C++ 只做置顶和点击穿透。
@@ -12,6 +13,7 @@ public:
 
     void setClickThrough(bool enabled);
     bool clickThrough() const { return clickThrough_; }
+    void setNativeWsUrl(QString url);
     void loadDevPage();
     void loadOfflineHtml();
 
@@ -23,4 +25,5 @@ private:
 
     bool clickThrough_ = true;
     bool loadedOfflineHtml_ = false;
+    QString nativeWsUrl_;
 };

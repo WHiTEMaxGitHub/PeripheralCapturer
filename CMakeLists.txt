@@ -19,7 +19,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets WebView Sql)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets WebView Sql WebSockets)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -35,7 +35,7 @@ FetchContent_MakeAvailable(spdlog)
 # VS IntelliSense cannot resolve spdlog's BUILD_INTERFACE genex; expose a real path.
 set(SPDLOG_INCLUDE_DIR "${spdlog_SOURCE_DIR}/include")
 
-set(QT_LIBRARIES Qt6::Core Qt6::Widgets Qt6::WebView Qt6::Sql)
+set(QT_LIBRARIES Qt6::Core Qt6::Widgets Qt6::WebView Qt6::Sql Qt6::WebSockets)
 
 # 包含子项目。
 add_subdirectory ("PeripheralCapturer")

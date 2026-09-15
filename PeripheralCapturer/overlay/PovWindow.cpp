@@ -16,6 +16,8 @@
 #include <QString>
 #include <QTimer>
 #include <QUrl>
+#include <QUrlQuery>
+#include <utility>
 #include <QtWebView/QWebViewLoadingInfo>
 
 #include <spdlog/spdlog.h>
@@ -137,7 +139,17 @@ void PovWindow::loadOfflineHtml() {
 
 void PovWindow::loadDevPage() {
     loadedOfflineHtml_ = false;
-    setUrl(QUrl(QStringLiteral("http://127.0.0.1:5173/")));
+    QUrl page(QStringLiteral("http://127.0.0.1:5173/"));
+    if (!nativeWsUrl_.isEmpty()) {
+        QUrlQuery query;
+        query.addQueryItem(QStringLiteral("ws"), nativeWsUrl_);
+        page.setQuery(query);
+    }
+    setUrl(page);
+}
+
+void PovWindow::setNativeWsUrl(QString url) {
+    nativeWsUrl_ = std::move(url);
 }
 
 PovWindow::PovWindow(QWindow* parent): QWebView(parent) {
@@ -184,10 +196,7 @@ PovWindow::PovWindow(QWindow* parent): QWebView(parent) {
         }
     });
 
-    // Debug：main 等 Vite 就绪再 loadDevPage。Release 直接试 5173，没有则离线页。
-#ifdef NDEBUG
-    loadDevPage();
-#endif
+    // Debug：main 等 Vite 就绪且 WS 地址已知再 loadDevPage。
 
     spdlog::info("[pov] window created build={} clickThrough={}", buildKind, clickThrough_);
 }
