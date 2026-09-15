@@ -3,9 +3,8 @@
 #include <spdlog/spdlog.h>
 
 FrameBatchWriter::FrameBatchWriter(Database& database, qint64 sessionId, int digitalBytes,
-                                   int analogBytes, int flushEveryFrames)
-    : db_(database), sessionId_(sessionId), digitalBytes_(digitalBytes), analogBytes_(analogBytes),
-      flushEvery_(flushEveryFrames < 1 ? 1 : flushEveryFrames) {}
+                                   int analogBytes)
+    : db_(database), sessionId_(sessionId), digitalBytes_(digitalBytes), analogBytes_(analogBytes) {}
 
 bool FrameBatchWriter::pushFrame(int frame, const QByteArray& blob) {
     const int expect = digitalBytes_ + analogBytes_;
@@ -14,10 +13,16 @@ bool FrameBatchWriter::pushFrame(int frame, const QByteArray& blob) {
         return false;
     }
     pending_.push_back(FrameRow{frame, blob});
-    if (static_cast<int>(pending_.size()) >= flushEvery_) {
+    pendingBytes_ += static_cast<std::size_t>(blob.size());
+    if (shouldFlush()) {
         return flush();
     }
     return true;
+}
+
+bool FrameBatchWriter::shouldFlush() const {
+    return pendingBytes_ >= kFlushBytes ||
+           static_cast<int>(pending_.size()) >= kMaxPendingFrames;
 }
 
 bool FrameBatchWriter::flush() {
@@ -28,6 +33,7 @@ bool FrameBatchWriter::flush() {
         return false;
     }
     pending_.clear();
+    pendingBytes_ = 0;
     return true;
 }
 

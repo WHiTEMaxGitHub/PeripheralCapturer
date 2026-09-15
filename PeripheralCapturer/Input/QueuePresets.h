@@ -9,13 +9,13 @@
 //   BoundedQueue<RawInputPacket> packets(kRawPacketQueueCapacity, QueueOverflow::DropOldest);
 inline constexpr std::size_t kRawPacketQueueCapacity = 4096;
 
-// 录制订阅：可阻塞、收全量（含 MouseMove），这里不能丢 KeyDown。
+// 录制订阅：可阻塞、不能丢 KeyDown。本轮不收 MouseMove，位移会把 Block 队列堵住。
 inline EventSubscribeOptions recorderSubscribeOptions() {
     EventSubscribeOptions o;
     o.name = "recorder";
     o.capacity = 8192;
     o.overflow = QueueOverflow::Block;
-    o.acceptMouseMove = true;
+    o.acceptMouseMove = false;
     return o;
 }
 

@@ -7,6 +7,7 @@
 #include "RawInputPacket.h"
 
 #include <atomic>
+#include <functional>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -36,6 +37,9 @@ public:
     bool running() const { return running_.load(std::memory_order_relaxed); }
     uint64_t publishedCount() const { return published_.load(std::memory_order_relaxed); }
     std::size_t packetDropped() const { return packets_.dropped(); }
+
+    void setOnToggleRecord(std::function<void()> cb) { onToggleRecord_ = std::move(cb); }
+    void setOnTogglePovClick(std::function<void()> cb) { onTogglePovClick_ = std::move(cb); }
 
 private:
     void run();
@@ -87,4 +91,6 @@ private:
 
     std::thread worker_;
     std::atomic<bool> running_{false};
+    std::function<void()> onToggleRecord_;
+    std::function<void()> onTogglePovClick_;
 };

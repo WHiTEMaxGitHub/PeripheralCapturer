@@ -29,9 +29,9 @@
 ### 2. 录制写入（v0.3 前半）
 
 - [x] SQLite 框架：`storage/Database` 建表、builtin 码本、`device_bits` 决定帧宽、帧 BLOB 批量写入（热路径不 INSERT）
-- [ ] 开录时冻结 `sessions.fps` 与 `device_bits`（API 已有，等 Recorder / 热键接上）
-- [ ] Recorder 订总线归并冻通道帧，`FrameBatchWriter` 按帧写入 `frame_data`（`frame` + `blob`）
-- [ ] 控制热键在 publish 前拦掉，不进按键流
+- [x] 开录时冻结 `sessions.fps` 与 `device_bits`（app-config `recording.fps` 默认 60；勾选写入 `device_bits`）
+- [x] Recorder 订总线归并冻通道帧，`FrameBatchWriter` 按帧写入 `frame_data`（`frame` + `blob`）；本轮不录 MouseMove
+- [x] 控制热键在 publish 前拦掉，不进按键流（F9 开停录，F10 穿透）
 
 ### 3. POV 真能画（v0.3 后半）
 

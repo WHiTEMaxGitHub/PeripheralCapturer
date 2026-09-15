@@ -56,12 +56,20 @@ AppConfig AppConfig::load() {
     if (recording.contains(QStringLiteral("gamepad"))) {
         cfg.recordGamepad = recording.value(QStringLiteral("gamepad")).toBool(false);
     }
+    if (recording.contains(QStringLiteral("fps"))) {
+        cfg.recordingFps = recording.value(QStringLiteral("fps")).toInt(60);
+    }
+    if (cfg.recordingFps <= 0 || cfg.recordingFps > 240) {
+        spdlog::warn("[ui] app-config fps={} invalid, using 60", cfg.recordingFps);
+        cfg.recordingFps = 60;
+    }
     if (cfg.recordingDeviceBits() == 0) {
         spdlog::warn("[ui] app-config record targets empty, fallback keyboard+mouse");
         cfg.recordKeyboard = true;
         cfg.recordMouse = true;
     }
-    spdlog::info("[ui] app-config loaded bits={:#x}", cfg.recordingDeviceBits());
+    spdlog::info("[ui] app-config loaded bits={:#x} fps={}", cfg.recordingDeviceBits(),
+                 cfg.recordingFps);
     return cfg;
 }
 
@@ -81,6 +89,7 @@ bool AppConfig::save() const {
     recording.insert(QStringLiteral("keyboard"), recordKeyboard);
     recording.insert(QStringLiteral("mouse"), recordMouse);
     recording.insert(QStringLiteral("gamepad"), recordGamepad);
+    recording.insert(QStringLiteral("fps"), recordingFps);
     root.insert(QStringLiteral("recording"), recording);
 
     QFile file(path);
@@ -89,6 +98,6 @@ bool AppConfig::save() const {
         return false;
     }
     file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-    spdlog::info("[ui] app-config saved bits={:#x}", recordingDeviceBits());
+    spdlog::info("[ui] app-config saved bits={:#x} fps={}", recordingDeviceBits(), recordingFps);
     return true;
 }

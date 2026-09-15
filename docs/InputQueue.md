@@ -47,7 +47,7 @@
         ▼                  ▼                  ▼
    录制线程            浮层聚合             码本「按一下绑定」
    Block，不丢         可丢旧的             临时订阅
-   含 MouseMove        默认不含 Move        不含 Move
+   本轮不含 Move       默认不含 Move        不含 Move
    归帧写 frame_data   降频快照 → WS       听一个控件就退订
 ```
 
@@ -62,7 +62,7 @@
 | 设备身份 | `DeviceRegistry`                       | 在 **publish 之前**，不是总线订阅者      |
 | 后端选择 | `shouldIgnoreRawHid` / 日后 DeviceRouter | 同样在 publish 之前                |
 
-**时钟只给事件打戳和算 `frameIndex`，不决定「这一帧有没有东西可写」。** 没有状态变化就没有 `InputEvent`。Recorder 在内存里按 `frameIndex` 归并成帧再批量写入 `frame_data`。空闲帧可以重复上一帧状态，不要往总线灌假事件。
+**时钟只给事件打戳和算 `frameIndex`，不决定「这一帧有没有东西可写」。** 没有状态变化就没有 `InputEvent`。Recorder 用开录时刻为原点重算本场帧号（不要用事件上进程寿命的 `frameIndex`），再批量写入 `frame_data`。空闲帧可以重复上一帧 blob，不要往总线灌假事件。本轮不录 `MouseMove`；勾了鼠标时 analog 槽位仍占着，值保持 0。
 
 **浮层不要订阅全量 InputEvent。** WebView 只吃降频快照。总线里 overlay 那条队列已经默认丢掉 `MouseMove`；即便如此，仍应再聚合成 snapshot 再走 WebSocket，而不是把事件 JSON 进 JS。
 
@@ -214,7 +214,7 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 | `name`            | 空            | 调试标签（`recorder` / `overlay` / `bind`）。运行不分支这个字符串。                                                      |
 | `capacity`        | 4096         | 该订阅者专用队列长度。                                                                                            |
 | `overflow`        | `DropOldest` | 该队列满员策略。录制必须改成 `Block`。                                                                                |
-| `acceptMouseMove` | `true`       | `false` 时 `publish` 遇到 `InputEventType::MouseMove` 直接跳过。浮层、绑键用 `false`；录制必须 `true`，否则没有位移。 |
+| `acceptMouseMove` | `true`       | `false` 时 `publish` 遇到 `InputEventType::MouseMove` 直接跳过。浮层、绑键、**本轮 Recorder** 都是 `false`。位移以后再开；1000Hz Move 进 Block 队列会把按键挤住。 |
 
 ### 公开方法
 
@@ -256,7 +256,7 @@ WndProc 与处理线程之间约定的内存布局。过了处理线程就不该
 | 符号                             | 含义                                                                                                                                                   |
 | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `kRawPacketQueueCapacity`      | 包队列长度 **4096**。创建：`BoundedQueue<RawInputPacket> packets(kRawPacketQueueCapacity, QueueOverflow::DropOldest);` 策略必须是 DropOldest，预设里只定容量，防止有人抄成 Block。 |
-| `recorderSubscribeOptions()`   | 名 `recorder`，容量 8192，**Block**，**收** MouseMove。归帧后写 `frame_data`。                                                                                                  |
+| `recorderSubscribeOptions()`   | 名 `recorder`，容量 8192，**Block**，**不收** MouseMove。归帧后写 `frame_data`。                                                                                                |
 | `overlaySubscribeOptions()`    | 容量 64，DropOldest，**不收** MouseMove。给快照聚合用；真正画 UI 还要再降频。                                                                                               |
 | `bindListenSubscribeOptions()` | 容量 32，DropOldest，不收 Move。码本监听「下一个非移动事件」。                                                                                                             |
 
@@ -323,7 +323,7 @@ while (auto pkt = packets.pop()) {
     bus.publish(e);
 }
 
-// 录制线程：按 e.frameIndex 归并冻通道，攒一批再 appendFrames
+// 录制线程：按本场帧号归并冻通道（不含 MouseMove），攒一批再 appendFrames
 while (auto e = logQ->pop()) {
     recorder.ingest(*e);
 }

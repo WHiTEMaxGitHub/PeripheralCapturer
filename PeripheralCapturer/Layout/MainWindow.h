@@ -11,12 +11,14 @@
 class Database;
 class InputPipeline;
 class PovWindow;
+class Recorder;
 
 class MainWindow: public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit MainWindow(Database& database, InputPipeline& pipeline, QWidget* parent = nullptr);
+    explicit MainWindow(Database& database, InputPipeline& pipeline, Recorder& recorder,
+                        QWidget* parent = nullptr);
     ~MainWindow() override;
 
     uint16_t recordingDeviceBits() const;
@@ -46,11 +48,13 @@ private:
     void onDebugOpenAppDir();
     void onDebugOpenLogDir();
     void onDebugTogglePovClick();
+    void onDebugToggleRecord();
 #endif
 
     Ui::MainWindowClass ui;
     Database& database_;
     InputPipeline& pipeline_;
+    Recorder& recorder_;
     PovWindow* pov_ = nullptr;
     DeviceRegistry registry_;
     AppConfig appConfig_;

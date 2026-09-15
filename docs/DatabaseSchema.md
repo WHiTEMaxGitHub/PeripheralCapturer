@@ -173,7 +173,7 @@ CREATE TABLE frame_data (
 
 顺序：键盘数字 → 鼠标键 → 手柄面键；然后鼠标 dx/dy → 手柄轴。未勾的设备整段不出现。
 
-内存攒一批（默认 32 帧）再一次事务 `INSERT`。
+内存攒批：满约 1MB 或 2048 帧（先到为准）再一次事务 `INSERT`。当前每帧只有几十字节，实际是帧数上限先触发（60fps 大约半分钟）。
 
 ```sql
 SELECT blob FROM frame_data WHERE session_id = ? AND frame = ?;

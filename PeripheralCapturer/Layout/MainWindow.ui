@@ -389,6 +389,13 @@
           </property>
           <layout class="QHBoxLayout" name="layoutDebugStorage">
            <item>
+            <widget class="QPushButton" name="debugToggleRecord">
+             <property name="text">
+              <string>开始 / 停止录制</string>
+             </property>
+            </widget>
+           </item>
+           <item>
             <widget class="QPushButton" name="debugRebuildDb">
              <property name="text">
               <string>删除并重建数据库</string>

@@ -38,6 +38,8 @@ add_executable (PeripheralCapturer
     storage/RecordingLayout.h
     storage/FrameBatchWriter.h
     storage/FrameBatchWriter.cpp
+    storage/Recorder.h
+    storage/Recorder.cpp
 )
 
 target_link_libraries(PeripheralCapturer PRIVATE ${QT_LIBRARIES} spdlog::spdlog Xinput dwmapi ws2_32)

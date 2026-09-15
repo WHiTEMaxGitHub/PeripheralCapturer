@@ -18,7 +18,6 @@
 
 namespace {
 
-constexpr auto kConnection = "pc";
 constexpr int kSchemaVersion = 4;
 
 const char* kCreateStatements[] = {
@@ -163,10 +162,6 @@ const BuiltinKey kBuiltins[] = {
     {"pad-ry", "gamepad", "analog", "Right Y", -1.0, 1.0, std::nullopt},
 };
 
-QSqlDatabase db() {
-    return QSqlDatabase::database(QLatin1String(kConnection));
-}
-
 std::optional<int> optionalInt(const QVariant& v) {
     if (v.isNull()) {
         return std::nullopt;
@@ -207,6 +202,16 @@ const char* kSelectKeyCode =
 
 } // namespace
 
+Database::Database(QString connectionName) : connectionName_(std::move(connectionName)) {
+    if (connectionName_.isEmpty()) {
+        connectionName_ = QStringLiteral("pc");
+    }
+}
+
+QSqlDatabase Database::db() const {
+    return QSqlDatabase::database(connectionName_);
+}
+
 bool Database::execSql(const QString& sql) {
     QSqlQuery q(db());
     if (!q.exec(sql)) {
@@ -219,8 +224,8 @@ bool Database::execSql(const QString& sql) {
 }
 
 bool Database::connectToFile(const QString& dbFilePath) {
-    if (QSqlDatabase::contains(QLatin1String(kConnection))) {
-        QSqlDatabase::removeDatabase(QLatin1String(kConnection));
+    if (QSqlDatabase::contains(connectionName_)) {
+        QSqlDatabase::removeDatabase(connectionName_);
     }
     if (!QSqlDatabase::isDriverAvailable(QStringLiteral("QSQLITE"))) {
         spdlog::critical("[db] Qt QSQLITE driver missing");
@@ -228,7 +233,7 @@ bool Database::connectToFile(const QString& dbFilePath) {
     }
 
     QDir().mkpath(QFileInfo(dbFilePath).absolutePath());
-    auto database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QLatin1String(kConnection));
+    auto database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName_);
     database.setDatabaseName(dbFilePath);
     if (!database.open()) {
         spdlog::critical("[db] open failed path={} err={}", dbFilePath.toStdString(),
@@ -251,7 +256,8 @@ bool Database::connectToFile(const QString& dbFilePath) {
         }
         pragma.finish();
     }
-    spdlog::info("[db] opened {}", dbFilePath.toStdString());
+    spdlog::info("[db] opened {} conn={}", dbFilePath.toStdString(),
+                 connectionName_.toStdString());
     return true;
 }
 
@@ -267,7 +273,7 @@ bool Database::open(const QString& dbFilePath) {
 }
 
 void Database::close() {
-    if (!QSqlDatabase::contains(QLatin1String(kConnection))) {
+    if (!QSqlDatabase::contains(connectionName_)) {
         return;
     }
     {
@@ -276,18 +282,18 @@ void Database::close() {
             database.close();
         }
     }
-    QSqlDatabase::removeDatabase(QLatin1String(kConnection));
-    spdlog::info("[db] closed");
+    QSqlDatabase::removeDatabase(connectionName_);
+    spdlog::info("[db] closed conn={}", connectionName_.toStdString());
 }
 
 bool Database::isOpen() const {
-    return QSqlDatabase::contains(QLatin1String(kConnection)) && db().isOpen();
+    return QSqlDatabase::contains(connectionName_) && db().isOpen();
 }
 
 namespace {
 
-int countTable(const char* table) {
-    QSqlQuery q(db());
+int countTable(QSqlDatabase database, const char* table) {
+    QSqlQuery q(database);
     if (!q.exec(QStringLiteral("SELECT COUNT(*) FROM %1").arg(QLatin1String(table))) || !q.next()) {
         return -1;
     }
@@ -326,10 +332,10 @@ Database::Stats Database::stats() const {
     if (q.exec(QStringLiteral("SELECT version FROM schema_version LIMIT 1")) && q.next()) {
         out.schemaVersion = q.value(0).toInt();
     }
-    out.keyCodes = countTable("key_codes");
-    out.sessions = countTable("sessions");
-    out.frames = countTable("frame_data");
-    out.markers = countTable("markers");
+    out.keyCodes = countTable(db(), "key_codes");
+    out.sessions = countTable(db(), "sessions");
+    out.frames = countTable(db(), "frame_data");
+    out.markers = countTable(db(), "markers");
     return out;
 }
 

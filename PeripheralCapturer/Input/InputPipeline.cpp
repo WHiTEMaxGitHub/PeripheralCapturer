@@ -569,6 +569,18 @@ void InputPipeline::pollXInput() {
 }
 
 void InputPipeline::publish(InputEvent event) {
+    // F9/F10 是控制热键：完整 Down/Up 都不进总线，避免写进 frame_data。
+    if ((event.type == InputEventType::KeyDown || event.type == InputEventType::KeyUp) &&
+        (event.vkey == VK_F9 || event.vkey == VK_F10)) {
+        if (event.type == InputEventType::KeyDown) {
+            if (event.vkey == VK_F9 && onToggleRecord_) {
+                onToggleRecord_();
+            } else if (event.vkey == VK_F10 && onTogglePovClick_) {
+                onTogglePovClick_();
+            }
+        }
+        return;
+    }
     noteFirst(event);
     bus_.publish(event);
     published_.fetch_add(1, std::memory_order_relaxed);

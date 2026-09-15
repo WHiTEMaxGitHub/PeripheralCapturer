@@ -6,11 +6,13 @@
 #include "Input/InputPipeline.h"
 #include "Input/Timer.h"
 #include "storage/Database.h"
+#include "storage/Recorder.h"
 
 #include <QApplication>
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QDir>
+#include <QMetaObject>
 #include <QtWebView/qtwebviewfunctions.h>
 
 #include <spdlog/spdlog.h>
@@ -45,9 +47,12 @@ int main(int argc, char* argv[]) {
 
     // 三扇窗：捕获（不可见）→ 配置 → POV，互不嵌套。
     InputPipeline pipeline;
+    // 总线不能退订；Recorder 必须在 start 前订上，否则 Block 队列没人 pop。
+    Recorder recorder(pipeline.bus(), dbPath);
     HiddenCaptureWindow capture;
     if (!capture.create(pipeline.packets())) {
         spdlog::critical("[app] capture window init failed, abort");
+        recorder.stop();
         database.close();
 #ifndef NDEBUG
         vite.stop();
@@ -55,9 +60,10 @@ int main(int argc, char* argv[]) {
         shutdownLogger();
         return 1;
     }
+    pipeline.setOnToggleRecord([&recorder] { recorder.toggle(); });
     pipeline.start();
 
-    MainWindow config(database, pipeline);
+    MainWindow config(database, pipeline, recorder);
     config.resize(1280, 720);
     config.show();
     spdlog::info("[app] config window shown");
@@ -75,12 +81,22 @@ int main(int argc, char* argv[]) {
     pov.setClickThrough(true);
     pov.show();
     config.setPovWindow(&pov);
+    // 处理线程不能碰 Qt 窗体：F10 排队到 GUI。
+    pipeline.setOnTogglePovClick([&pov] {
+        QMetaObject::invokeMethod(
+            &pov,
+            [&pov] { pov.setClickThrough(!pov.clickThrough()); },
+            Qt::QueuedConnection);
+    });
     spdlog::info("[app] pov window shown");
 
     const int code = app.exec();
 
+    pipeline.setOnToggleRecord({});
+    pipeline.setOnTogglePovClick({});
     capture.destroy();
     pipeline.stop();
+    recorder.stop();
     database.close();
     if (code != 0) {
         spdlog::error("[app] exiting code={}", code);

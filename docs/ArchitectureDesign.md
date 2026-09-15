@@ -250,7 +250,7 @@ Profile 不预生成。Debug 用系统 AppData。
 
 ### app-config.json
 
-`currentProfile.sourcePath`、热键、静默录制、要录的设备（`recording.keyboard / mouse / gamepad`）、备份目录、语言主题、窗口几何、WebSocket 端口策略。
+`currentProfile.sourcePath`、热键、静默录制、要录的设备（`recording.keyboard / mouse / gamepad`）、`recording.fps`（默认 60；Profile 页还没有 `defaultFps` 之前用这个，开录拷进 `sessions.fps`）、备份目录、语言主题、窗口几何、WebSocket 端口策略。
 
 ### profile JSON
 

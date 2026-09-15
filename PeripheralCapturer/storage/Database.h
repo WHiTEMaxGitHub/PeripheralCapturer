@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QSqlDatabase>
 #include <QString>
 #include <cstdint>
 #include <optional>
@@ -46,6 +47,7 @@ struct KeyCodeRecord {
 
 class Database {
 public:
+    explicit Database(QString connectionName = QStringLiteral("pc"));
     struct Stats {
         QString path;
         bool open = false;
@@ -97,6 +99,7 @@ public:
 
 private:
     bool execSql(const QString& sql);
+    QSqlDatabase db() const;
     bool connectToFile(const QString& dbFilePath);
     int readSchemaVersion() const;
     bool resetSchema();
@@ -104,4 +107,5 @@ private:
     bool seedBuiltins();
 
     QString filePath_;
+    QString connectionName_;
 };

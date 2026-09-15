@@ -4,6 +4,7 @@
 #include "../Input/InputPipeline.h"
 #include "../overlay/PovWindow.h"
 #include "../storage/Database.h"
+#include "../storage/Recorder.h"
 
 #include <QCheckBox>
 #include <QCoreApplication>
@@ -21,10 +22,11 @@
 
 #include <spdlog/spdlog.h>
 
-MainWindow::MainWindow(Database& database, InputPipeline& pipeline, QWidget* parent)
+MainWindow::MainWindow(Database& database, InputPipeline& pipeline, Recorder& recorder, QWidget* parent)
     : QMainWindow(parent)
     , database_(database)
-    , pipeline_(pipeline) {
+    , pipeline_(pipeline)
+    , recorder_(recorder) {
     ui.setupUi(this);
     setupChrome();
     setupRecordTargets();
@@ -176,6 +178,7 @@ void MainWindow::setupDebugPage() {
     connect(ui.debugOpenAppDir, &QPushButton::clicked, this, &MainWindow::onDebugOpenAppDir);
     connect(ui.debugOpenLogDir, &QPushButton::clicked, this, &MainWindow::onDebugOpenLogDir);
     connect(ui.debugTogglePovClick, &QPushButton::clicked, this, &MainWindow::onDebugTogglePovClick);
+    connect(ui.debugToggleRecord, &QPushButton::clicked, this, &MainWindow::onDebugToggleRecord);
     connect(&debugTimer_, &QTimer::timeout, this, [this] {
         if (ui.LeftSideBar->currentRow() == PageDebug) {
             refreshDebugStats();
@@ -206,6 +209,10 @@ void MainWindow::refreshDebugStats() {
             .arg(pipeline_.running() ? QStringLiteral("yes") : QStringLiteral("no"))
             .arg(pipeline_.publishedCount())
             .arg(static_cast<qulonglong>(pipeline_.packetDropped())) +
+        QStringLiteral("录制：%1  session=%2  fps=%3\n")
+            .arg(recorder_.recording() ? QStringLiteral("on") : QStringLiteral("off"))
+            .arg(recorder_.sessionId())
+            .arg(appConfig_.recordingFps) +
         povLine);
 }
 
@@ -219,6 +226,7 @@ void MainWindow::onDebugRebuildDatabase() {
     if (ret != QMessageBox::Ok) {
         return;
     }
+    recorder_.prepareForDbWipe();
     if (!database_.recreate()) {
         spdlog::error("[ui] debug recreate database failed");
         QMessageBox::critical(this, QStringLiteral("重建失败"),
@@ -263,6 +271,12 @@ void MainWindow::onDebugTogglePovClick() {
         return;
     }
     pov_->setClickThrough(!pov_->clickThrough());
+    refreshDebugStats();
+}
+
+void MainWindow::onDebugToggleRecord() {
+    recorder_.toggle();
+    statusBar()->showMessage(QStringLiteral("已发送开/停录（F9）"), 2000);
     refreshDebugStats();
 }
 #endif

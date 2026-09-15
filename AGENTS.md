@@ -47,12 +47,13 @@ WM_INPUT：拷包 + 时间戳 + tryPush → 立刻返回
 禁止：wait、解析 HID、写盘、SQLite、spdlog、Qt 信号
 ```
 
-处理线程变成 `InputEvent` 并 `bus.publish`。录制队列 `Block`；捕获 `tryPush` DropOldest；浮层可丢。浮层不要订全量事件，尤其不要全量 `MouseMove`。HUD：数字键禁止按下渐变；模拟轴可画成 F–t / 摇杆盘（Profile）。控制热键在 **publish 前**拦掉。
+处理线程变成 `InputEvent` 并 `bus.publish`。录制队列 `Block`（常驻 Recorder 线程 pop，空闲丢掉）；捕获 `tryPush` DropOldest；浮层可丢。浮层不要订全量事件，尤其不要全量 `MouseMove`。Recorder 本轮也不收 `MouseMove`。HUD：数字键禁止按下渐变；模拟轴可画成 F–t / 摇杆盘（Profile）。控制热键在 **publish 前**拦掉。
 
 ## 存储
 
-- SQLite 一份 `data.db`（和 exe 同目录）。录制是 `frame_data`：一行一帧，`blob` 前半 bitset、后半 float32。内存攒批再事务写入。
-- 开录写入 `sessions.device_bits`；通道顺序是 `RecLayout`。
+- SQLite 一份 `data.db`（和 exe 同目录）。录制是 `frame_data`：一行一帧，`blob` 前半 bitset、后半 float32。内存攒批：满约 1MB 或 2048 帧再事务写入。
+- 开录写入 `sessions.device_bits`；通道顺序是 `RecLayout`。`fps` 来自 `app-config.json` 的 `recording.fps`（默认 60），开录冻结。
+- Recorder 线程对同一文件另开连接 `"pc-rec"`（WAL）；不要用 UI 的 `"pc"`。空闲只 pop 丢掉，开录才归并写盘。勾了鼠标时 analog 槽位仍占着，本轮位移保持 0。
 - Profile / app-config：JSON。
 
 查表用 `findByNativeVk` 等；热路径不要 `INSERT`。
@@ -67,4 +68,4 @@ WM_INPUT：拷包 + 时间戳 + tryPush → 立刻返回
 
 ## 增量
 
-先对照 `docs/TODO.md` 和专项文档。用户没点名的大块（Recorder、WS）不要自行铺开。改完相关行为：初始化/失败分支要有日志；非显然逻辑要有注释。
+先对照 `docs/TODO.md` 和专项文档。用户没点名的大块（WS / Vue 画键）不要自行铺开。改完相关行为：初始化/失败分支要有日志；非显然逻辑要有注释。

@@ -8,6 +8,7 @@ struct AppConfig {
     bool recordKeyboard = true;
     bool recordMouse = true;
     bool recordGamepad = false;
+    int recordingFps = 60;
 
     uint16_t recordingDeviceBits() const;
     static QString filePath();
