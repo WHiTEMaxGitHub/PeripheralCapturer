@@ -84,6 +84,11 @@
         <string>日志</string>
        </property>
       </item>
+      <item>
+       <property name="text">
+        <string>调试</string>
+       </property>
+      </item>
      </widget>
     </item>
     <item>
@@ -326,6 +331,142 @@
         </item>
         <item>
          <spacer name="spacerLog">
+          <property name="orientation">
+           <enum>Qt::Orientation::Vertical</enum>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </widget>
+      <widget class="QWidget" name="pageDebug">
+       <layout class="QVBoxLayout" name="layoutDebug">
+        <property name="leftMargin">
+         <number>24</number>
+        </property>
+        <property name="topMargin">
+         <number>20</number>
+        </property>
+        <property name="rightMargin">
+         <number>24</number>
+        </property>
+        <property name="bottomMargin">
+         <number>20</number>
+        </property>
+        <item>
+         <widget class="QLabel" name="titleDebug">
+          <property name="text">
+           <string>调试</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="hintDebug">
+          <property name="text">
+           <string>仅 Debug 构建显示。重建库会丢掉会话和自定义码本；采集统计来自处理线程，不是逐事件日志。</string>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="debugStats">
+          <property name="text">
+           <string/>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+          <property name="textInteractionFlags">
+           <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="debugGroupStorage">
+          <property name="title">
+           <string>存储</string>
+          </property>
+          <layout class="QHBoxLayout" name="layoutDebugStorage">
+           <item>
+            <widget class="QPushButton" name="debugRebuildDb">
+             <property name="text">
+              <string>删除并重建数据库</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="debugResetAppConfig">
+             <property name="text">
+              <string>恢复默认 app-config</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="debugStorageSpacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="debugGroupPov">
+          <property name="title">
+           <string>POV</string>
+          </property>
+          <layout class="QHBoxLayout" name="layoutDebugPov">
+           <item>
+            <widget class="QPushButton" name="debugTogglePovClick">
+             <property name="text">
+              <string>切换点击穿透</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="debugPovSpacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <widget class="QGroupBox" name="debugGroupFolders">
+          <property name="title">
+           <string>目录</string>
+          </property>
+          <layout class="QHBoxLayout" name="layoutDebugFolders">
+           <item>
+            <widget class="QPushButton" name="debugOpenAppDir">
+             <property name="text">
+              <string>打开程序目录</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="debugOpenLogDir">
+             <property name="text">
+              <string>打开日志目录</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="debugFoldersSpacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </widget>
+        </item>
+        <item>
+         <spacer name="spacerDebug">
           <property name="orientation">
            <enum>Qt::Orientation::Vertical</enum>
           </property>

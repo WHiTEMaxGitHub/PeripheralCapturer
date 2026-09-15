@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
     }
     pipeline.start();
 
-    MainWindow config;
+    MainWindow config(database, pipeline);
     config.resize(1280, 720);
     config.show();
     spdlog::info("[app] config window shown");
@@ -53,6 +53,7 @@ int main(int argc, char* argv[]) {
     PovWindow pov;
     pov.setClickThrough(true);
     pov.show();
+    config.setPovWindow(&pov);
     spdlog::info("[app] pov window shown");
 
     const int code = app.exec();

@@ -8,14 +8,19 @@
 #include <QTimer>
 #include <cstdint>
 
+class Database;
+class InputPipeline;
+class PovWindow;
+
 class MainWindow: public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget* parent = nullptr);
+    explicit MainWindow(Database& database, InputPipeline& pipeline, QWidget* parent = nullptr);
     ~MainWindow() override;
 
     uint16_t recordingDeviceBits() const;
+    void setPovWindow(PovWindow* pov);
 
 private:
     enum Page : int {
@@ -24,6 +29,7 @@ private:
         PageProfile,
         PageRecordings,
         PageLog,
+        PageDebug,
     };
 
     void setupChrome();
@@ -32,10 +38,25 @@ private:
     void onRecordTargetChanged();
     void refreshGamepadList();
     void pollGamepads();
+#ifndef NDEBUG
+    void setupDebugPage();
+    void refreshDebugStats();
+    void onDebugRebuildDatabase();
+    void onDebugResetAppConfig();
+    void onDebugOpenAppDir();
+    void onDebugOpenLogDir();
+    void onDebugTogglePovClick();
+#endif
 
     Ui::MainWindowClass ui;
+    Database& database_;
+    InputPipeline& pipeline_;
+    PovWindow* pov_ = nullptr;
     DeviceRegistry registry_;
     AppConfig appConfig_;
     bool xinputConnected_[4] = {};
     QTimer padTimer_;
+#ifndef NDEBUG
+    QTimer debugTimer_;
+#endif
 };
