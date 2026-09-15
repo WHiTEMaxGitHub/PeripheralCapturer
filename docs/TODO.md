@@ -1,6 +1,8 @@
 # TODO
 
-对照现状：三扇窗壳在、采集链路（键鼠 + XInput）能出 `InputEvent`、schema 4 建表、设备页能勾本场要录的设备、POV 能开 WebView2。下面按依赖顺序排，做完再勾。
+对照现状：三扇窗壳在、采集链路（键鼠 + XInput）能出 `InputEvent`、schema 4 建表、设备页能勾本场要录的设备、POV 能开 WebView2 并画快照。下面按依赖顺序排，做完再勾。
+
+**优先把键鼠 + XInput 这条产品做完**（码本已接上；接下来先能在配置窗看见各场录制及其元数据）。非 Xbox 通用 HID、全屏浮层、回放导出放到最后。
 
 ## 已有（不必再做一遍）
 
@@ -39,24 +41,27 @@
 - [x] `FrameAggregator`：事件归并快照，可丢旧帧；**不**把全量 InputEvent 给 JS
 - [x] Vue 接 `bridge.ts` 画按下键 / 轴；开发 Vite（发布打 `dist` 尚未进 CMake）
 - [x] 穿透热键：`PovWindow::setClickThrough` 在可点 / 穿透间切换
-- [ ] POV 正式全屏；配置时不要盖住主窗（现在右上角预览可先留着）
 
-### 4. 手柄走同一条事件流（v0.4）
+### 4. XInput 走同一条事件流
 
 - [x] XInput ~250Hz 轮询差分 → 同一 `InputEventBus`（不要再只给设备列表用）
-- [x] `IG_` HID 丢弃，避免 A 键两遍（本步不注册 HID Usage；误入的 HID 包仍走 `shouldIgnoreRawHid`）
-- [ ] 非 Xbox HID：`HidP_*` 解析 Button/Axis/Hat，细类写入 `hidKind`
-- [x] 轴死区 / ε（XInput 摇杆/扳机）；HID 轴仍等 `HidP_*`
+- [x] `IG_` HID 丢弃，避免 A 键两遍（不注册 HID Usage；误入的 HID 包仍走 `shouldIgnoreRawHid`）
+- [x] 轴死区 / ε（XInput 摇杆/扳机）
 
-### 5. 配置产品（可与 2–4 交错）
+### 5. 键鼠 + XInput 配置产品（接下来做）
 
-- [ ] 码本页：列表 / 注册 / 监听绑定 `native_*`
-- [ ] Profile JSON：颜色、布局、`recording.defaultFps`、`export.fps`
+- [x] 码本页：列表 / 注册 / 监听绑定 `native_*`
 - [x] `app-config.json`：本场要录的设备（键盘 / 鼠标 / 手柄），配置窗勾选；开录再冻 `deviceBits`
-- [ ] 录制库：列表、改名、标签、删除、检查器
+- [ ] 录制库列表：配置窗能看见有几场；点开一场看元数据（名字、起止时间、时长、fps、`total_frames`、`device_bits`）。时长用 `end_time - start_time`（进行中 `end_time` 为空则标进行中）；`total_frames` 应等于该场 `frame_data` 行数。本轮不解码 blob、不回放
+- [ ] 录制库编辑：改名、标签、删除（级联帧）；检查器再另做
+- [ ] Profile JSON：颜色、布局、`recording.defaultFps`、`export.fps`（组装 HUD 控件）
+- [ ] 录鼠标位移：`MouseMove` 进 Recorder，帧内 `dx/dy` 写入 `mouse-dx` / `mouse-dy`
 
-### 6. 后话（v0.5–v1.0）
+## 后话（通用 HID / 全屏 / 发布）
 
+- [ ] 非 Xbox HID：`HidP_*` 解析 Button/Axis/Hat，细类写入 `hidKind`；HID 轴死区
+- [ ] POV 正式全屏；配置时不要盖住主窗（现在左侧中部预览先留着）
+- [ ] 发布把 Vue `dist/` 打进 CMake / qrc
 - [ ] 回放、JSON/CSV 导出
 - [ ] `.pcrec` 备份导入导出
 - [ ] 安装包 / `windeployqt` 发布检查（WebView2 Runtime）

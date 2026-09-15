@@ -176,10 +176,7 @@ std::optional<double> optionalDouble(const QVariant& v) {
     return v.toDouble();
 }
 
-std::optional<KeyCodeRecord> readKeyCode(QSqlQuery& q) {
-    if (!q.next()) {
-        return std::nullopt;
-    }
+KeyCodeRecord fillKeyCode(const QSqlQuery& q) {
     KeyCodeRecord row;
     row.id = q.value(0).toLongLong();
     row.keyId = q.value(1).toString();
@@ -193,6 +190,22 @@ std::optional<KeyCodeRecord> readKeyCode(QSqlQuery& q) {
     row.defaultLabel = q.value(9).toString();
     row.origin = q.value(10).toString();
     return row;
+}
+
+std::optional<KeyCodeRecord> readKeyCode(QSqlQuery& q) {
+    if (!q.next()) {
+        return std::nullopt;
+    }
+    return fillKeyCode(q);
+}
+
+bool isKnownKind(const QString& kind) {
+    return kind == QLatin1String("keyboard") || kind == QLatin1String("mouse") ||
+           kind == QLatin1String("gamepad") || kind == QLatin1String("other");
+}
+
+bool isKnownValueKind(const QString& valueKind) {
+    return valueKind == QLatin1String("digital") || valueKind == QLatin1String("analog");
 }
 
 const char* kSelectKeyCode =
@@ -362,6 +375,242 @@ bool Database::recreate() {
         spdlog::info("[db] recreate done path={}", path.toStdString());
     }
     return ok;
+}
+
+bool Database::isValidKeyId(const QString& keyId) {
+    if (keyId.isEmpty()) {
+        return false;
+    }
+    bool prevHyphen = false;
+    for (int i = 0; i < keyId.size(); ++i) {
+        const QChar c = keyId[i];
+        const bool alnum = (c >= u'a' && c <= u'z') || (c >= u'0' && c <= u'9');
+        if (alnum) {
+            prevHyphen = false;
+            continue;
+        }
+        // 不能开头/结尾/连续 '-'，与 builtin 的 mouse-left 一致。
+        if (c == u'-' && i > 0 && i + 1 < keyId.size() && !prevHyphen) {
+            prevHyphen = true;
+            continue;
+        }
+        return false;
+    }
+    return !prevHyphen;
+}
+
+std::optional<KeyCodeRecord> Database::findById(qint64 id) const {
+    if (!isOpen()) {
+        spdlog::error("[db] findById: database not open");
+        return std::nullopt;
+    }
+    QSqlQuery q(db());
+    q.prepare(QString::fromLatin1(kSelectKeyCode) + QStringLiteral("WHERE id = ?"));
+    q.addBindValue(id);
+    if (!q.exec()) {
+        spdlog::error("[db] findById failed: {}", q.lastError().text().toStdString());
+        return std::nullopt;
+    }
+    return readKeyCode(q);
+}
+
+std::vector<KeyCodeRecord> Database::listKeyCodes() const {
+    std::vector<KeyCodeRecord> out;
+    if (!isOpen()) {
+        spdlog::error("[db] listKeyCodes: database not open");
+        return out;
+    }
+    QSqlQuery q(db());
+    if (!q.exec(QString::fromLatin1(kSelectKeyCode) + QStringLiteral("ORDER BY kind, key_id"))) {
+        spdlog::error("[db] listKeyCodes failed: {}", q.lastError().text().toStdString());
+        return out;
+    }
+    while (q.next()) {
+        out.push_back(fillKeyCode(q));
+    }
+    return out;
+}
+
+std::optional<qint64> Database::insertUserKey(const QString& keyId, const QString& kind,
+                                              const QString& valueKind, const QString& label,
+                                              std::optional<double> rangeMin,
+                                              std::optional<double> rangeMax) {
+    if (!isOpen()) {
+        spdlog::error("[db] insertUserKey: database not open");
+        return std::nullopt;
+    }
+    const QString id = keyId.trimmed().toLower();
+    const QString kindNorm = kind.trimmed().toLower();
+    const QString valueNorm = valueKind.trimmed().toLower();
+    const QString labelNorm = label.trimmed();
+    if (!isValidKeyId(id)) {
+        spdlog::warn("[db] insertUserKey: invalid key_id={}", keyId.toStdString());
+        return std::nullopt;
+    }
+    if (!isKnownKind(kindNorm) || !isKnownValueKind(valueNorm)) {
+        spdlog::warn("[db] insertUserKey: bad kind/value_kind key_id={}", id.toStdString());
+        return std::nullopt;
+    }
+    if (labelNorm.isEmpty()) {
+        spdlog::warn("[db] insertUserKey: empty label key_id={}", id.toStdString());
+        return std::nullopt;
+    }
+    std::optional<double> min = rangeMin;
+    std::optional<double> max = rangeMax;
+    if (valueNorm == QLatin1String("analog")) {
+        if (!min || !max || *min >= *max) {
+            spdlog::warn("[db] insertUserKey: analog {} needs range_min < range_max",
+                         id.toStdString());
+            return std::nullopt;
+        }
+    } else {
+        min.reset();
+        max.reset();
+    }
+
+    QSqlQuery ins(db());
+    ins.prepare(QStringLiteral(
+        "INSERT INTO key_codes (key_id, kind, value_kind, range_min, range_max, "
+        "default_label, origin) VALUES (?, ?, ?, ?, ?, ?, 'user')"));
+    ins.addBindValue(id);
+    ins.addBindValue(kindNorm);
+    ins.addBindValue(valueNorm);
+    ins.addBindValue(min ? QVariant(*min) : QVariant());
+    ins.addBindValue(max ? QVariant(*max) : QVariant());
+    ins.addBindValue(labelNorm);
+    if (!ins.exec()) {
+        spdlog::error("[db] insertUserKey failed key_id={} err={}", id.toStdString(),
+                      ins.lastError().text().toStdString());
+        return std::nullopt;
+    }
+    const qint64 rowId = ins.lastInsertId().toLongLong();
+    spdlog::info("[db] user key_id={} id={}", id.toStdString(), rowId);
+    return rowId;
+}
+
+bool Database::updateKeyMeta(qint64 id, const QString& label, std::optional<double> rangeMin,
+                             std::optional<double> rangeMax) {
+    if (!isOpen()) {
+        spdlog::error("[db] updateKeyMeta: database not open");
+        return false;
+    }
+    const auto row = findById(id);
+    if (!row) {
+        spdlog::warn("[db] updateKeyMeta: id={} not found", id);
+        return false;
+    }
+    const QString labelNorm = label.trimmed();
+    if (labelNorm.isEmpty()) {
+        spdlog::warn("[db] updateKeyMeta: empty label id={}", id);
+        return false;
+    }
+    std::optional<double> min = rangeMin;
+    std::optional<double> max = rangeMax;
+    if (row->valueKind == QLatin1String("analog")) {
+        if (!min || !max || *min >= *max) {
+            spdlog::warn("[db] updateKeyMeta: analog id={} needs range_min < range_max", id);
+            return false;
+        }
+    } else {
+        min.reset();
+        max.reset();
+    }
+
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral(
+        "UPDATE key_codes SET default_label = ?, range_min = ?, range_max = ? WHERE id = ?"));
+    q.addBindValue(labelNorm);
+    q.addBindValue(min ? QVariant(*min) : QVariant());
+    q.addBindValue(max ? QVariant(*max) : QVariant());
+    q.addBindValue(id);
+    if (!q.exec()) {
+        spdlog::error("[db] updateKeyMeta failed id={} err={}", id,
+                      q.lastError().text().toStdString());
+        return false;
+    }
+    spdlog::info("[db] updateKeyMeta id={} key_id={}", id, row->keyId.toStdString());
+    return true;
+}
+
+bool Database::bindNativeVk(qint64 id, int nativeVk) {
+    if (!isOpen()) {
+        spdlog::error("[db] bindNativeVk: database not open");
+        return false;
+    }
+    if (nativeVk <= 0) {
+        spdlog::warn("[db] bindNativeVk: invalid native_vk={} id={}", nativeVk, id);
+        return false;
+    }
+    const auto row = findById(id);
+    if (!row) {
+        spdlog::warn("[db] bindNativeVk: id={} not found", id);
+        return false;
+    }
+
+    auto database = db();
+    if (!database.transaction()) {
+        spdlog::error("[db] bindNativeVk: begin transaction failed");
+        return false;
+    }
+    QSqlQuery clear(database);
+    clear.prepare(QStringLiteral(
+        "UPDATE key_codes SET native_vk = NULL WHERE kind = ? AND native_vk = ? AND id != ?"));
+    clear.addBindValue(row->kind);
+    clear.addBindValue(nativeVk);
+    clear.addBindValue(id);
+    if (!clear.exec()) {
+        spdlog::error("[db] bindNativeVk clear failed: {}",
+                      clear.lastError().text().toStdString());
+        database.rollback();
+        return false;
+    }
+    const int cleared = clear.numRowsAffected();
+    QSqlQuery bind(database);
+    bind.prepare(QStringLiteral("UPDATE key_codes SET native_vk = ? WHERE id = ?"));
+    bind.addBindValue(nativeVk);
+    bind.addBindValue(id);
+    if (!bind.exec()) {
+        spdlog::error("[db] bindNativeVk update failed: {}",
+                      bind.lastError().text().toStdString());
+        database.rollback();
+        return false;
+    }
+    if (!database.commit()) {
+        spdlog::error("[db] bindNativeVk commit failed: {}",
+                      database.lastError().text().toStdString());
+        database.rollback();
+        return false;
+    }
+    spdlog::info("[db] bind native_vk={} key_id={} id={} cleared={}", nativeVk,
+                 row->keyId.toStdString(), id, cleared);
+    return true;
+}
+
+bool Database::deleteKeyCode(qint64 id) {
+    if (!isOpen()) {
+        spdlog::error("[db] deleteKeyCode: database not open");
+        return false;
+    }
+    const auto row = findById(id);
+    if (!row) {
+        spdlog::warn("[db] deleteKeyCode: id={} not found", id);
+        return false;
+    }
+    if (row->origin == QLatin1String("builtin")) {
+        spdlog::warn("[db] deleteKeyCode: refuse builtin key_id={}", row->keyId.toStdString());
+        return false;
+    }
+    QSqlQuery q(db());
+    q.prepare(QStringLiteral("DELETE FROM key_codes WHERE id = ?"));
+    q.addBindValue(id);
+    if (!q.exec()) {
+        spdlog::error("[db] deleteKeyCode failed id={} err={}", id,
+                      q.lastError().text().toStdString());
+        return false;
+    }
+    spdlog::info("[db] deleted key_id={} origin={} id={}", row->keyId.toStdString(),
+                 row->origin.toStdString(), id);
+    return true;
 }
 
 std::optional<KeyCodeRecord> Database::findByKeyId(const QString& keyId) const {

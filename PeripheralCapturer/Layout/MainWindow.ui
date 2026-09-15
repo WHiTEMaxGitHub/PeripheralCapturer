@@ -202,7 +202,7 @@
         <item>
          <widget class="QLabel" name="hintKeyCodes">
           <property name="text">
-           <string>按键与轴的编码表。用户可注册、监听绑定。尚未接入 SQLite。</string>
+           <string>按键与轴的编码表。可注册、改标签、监听绑定 native_vk。自定义 key_id 会进 POV 快照，但不进本场 RecLayout 通道（录制通道仍是常量表）。</string>
           </property>
           <property name="wordWrap">
            <bool>true</bool>
@@ -210,11 +210,59 @@
          </widget>
         </item>
         <item>
-         <spacer name="spacerKeyCodes">
-          <property name="orientation">
-           <enum>Qt::Orientation::Vertical</enum>
+         <layout class="QHBoxLayout" name="layoutKeyCodeActions">
+          <item>
+           <widget class="QPushButton" name="btnKeyCodeAdd">
+            <property name="text">
+             <string>注册</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnKeyCodeEdit">
+            <property name="text">
+             <string>改标签</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnKeyCodeBind">
+            <property name="text">
+             <string>监听绑定</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnKeyCodeDelete">
+            <property name="text">
+             <string>删除</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <spacer name="keyCodeActionsSpacer">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+           </spacer>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <widget class="QTableWidget" name="tableKeyCodes">
+          <property name="editTriggers">
+           <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
           </property>
-         </spacer>
+          <property name="selectionMode">
+           <enum>QAbstractItemView::SelectionMode::SingleSelection</enum>
+          </property>
+          <property name="selectionBehavior">
+           <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+          </property>
+          <property name="alternatingRowColors">
+           <bool>true</bool>
+          </property>
+         </widget>
         </item>
        </layout>
       </widget>

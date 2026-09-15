@@ -4,6 +4,8 @@
 
 #include <spdlog/spdlog.h>
 
+#include <mutex>
+
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -277,6 +279,34 @@ void InputPipeline::stop() {
                  published_.load(), packets_.dropped());
 }
 
+void InputPipeline::reloadNativeVkMap(std::vector<NativeVkBinding> bindings) {
+    std::unordered_map<std::string, std::string> next;
+    next.reserve(bindings.size());
+    for (auto& b : bindings) {
+        if (b.nativeVk <= 0 || b.keyId.empty() || b.kind.empty()) {
+            continue;
+        }
+        next.insert_or_assign(b.kind + '|' + std::to_string(b.nativeVk), std::move(b.keyId));
+    }
+    const std::size_t n = next.size();
+    {
+        std::lock_guard lock(vkMapMutex_);
+        nativeVkMap_.swap(next);
+    }
+    spdlog::info("[capture] codebook vk map reloaded entries={}", n);
+}
+
+std::string InputPipeline::lookupNativeControl(std::string_view kind, int nativeVk,
+                                               const std::string& fallback) const {
+    const std::string key = std::string(kind) + '|' + std::to_string(nativeVk);
+    std::lock_guard lock(vkMapMutex_);
+    const auto it = nativeVkMap_.find(key);
+    if (it == nativeVkMap_.end()) {
+        return fallback;
+    }
+    return it->second;
+}
+
 void InputPipeline::run() {
     while (running_.load(std::memory_order_relaxed) || packets_.size() > 0) {
         auto pkt = packets_.popFor(kXInputPeriod);
@@ -390,7 +420,7 @@ void InputPipeline::processKeyboard(const RawInputPacket& pkt, const std::string
     ev.backend = InputBackend::RawInput;
     ev.deviceType = InputDeviceType::Keyboard;
     ev.type = up ? InputEventType::KeyUp : InputEventType::KeyDown;
-    ev.control = keyboardControl(vkey);
+    ev.control = lookupNativeControl("keyboard", vkey, keyboardControl(vkey));
     ev.rawValue = up ? 0 : 1;
     ev.normalizedValue = up ? 0.f : 1.f;
     ev.vkey = vkey;
@@ -439,13 +469,14 @@ void InputPipeline::processMouse(const RawInputPacket& pkt, const std::string& d
         USHORT downBit;
         USHORT upBit;
         const char* control;
+        uint16_t nativeVk;
     };
     static constexpr MouseBtn kBtns[] = {
-        {RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, "mouse-left"},
-        {RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP, "mouse-right"},
-        {RI_MOUSE_MIDDLE_BUTTON_DOWN, RI_MOUSE_MIDDLE_BUTTON_UP, "mouse-middle"},
-        {RI_MOUSE_BUTTON_4_DOWN, RI_MOUSE_BUTTON_4_UP, "mouse-x1"},
-        {RI_MOUSE_BUTTON_5_DOWN, RI_MOUSE_BUTTON_5_UP, "mouse-x2"},
+        {RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP, "mouse-left", 0x01},
+        {RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP, "mouse-right", 0x02},
+        {RI_MOUSE_MIDDLE_BUTTON_DOWN, RI_MOUSE_MIDDLE_BUTTON_UP, "mouse-middle", 0x04},
+        {RI_MOUSE_BUTTON_4_DOWN, RI_MOUSE_BUTTON_4_UP, "mouse-x1", 0x05},
+        {RI_MOUSE_BUTTON_5_DOWN, RI_MOUSE_BUTTON_5_UP, "mouse-x2", 0x06},
     };
     for (const auto& btn : kBtns) {
         const bool down = (flags & btn.downBit) != 0;
@@ -458,7 +489,8 @@ void InputPipeline::processMouse(const RawInputPacket& pkt, const std::string& d
         ev.backend = InputBackend::RawInput;
         ev.deviceType = InputDeviceType::Mouse;
         ev.type = down ? InputEventType::MouseButtonDown : InputEventType::MouseButtonUp;
-        ev.control = btn.control;
+        ev.vkey = btn.nativeVk;
+        ev.control = lookupNativeControl("mouse", btn.nativeVk, btn.control);
         ev.rawValue = down ? 1 : 0;
         ev.normalizedValue = down ? 1.f : 0.f;
         publish(std::move(ev));

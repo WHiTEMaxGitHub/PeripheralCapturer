@@ -7,20 +7,33 @@
 #include "../storage/Recorder.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QDesktopServices>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFont>
+#include <QFormLayout>
+#include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSignalBlocker>
 #include <QStatusBar>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QUrl>
 
 #include <spdlog/spdlog.h>
+
+#include <utility>
+#include <vector>
 
 MainWindow::MainWindow(Database& database, InputPipeline& pipeline, Recorder& recorder, QWidget* parent)
     : QMainWindow(parent)
@@ -30,6 +43,7 @@ MainWindow::MainWindow(Database& database, InputPipeline& pipeline, Recorder& re
     ui.setupUi(this);
     setupChrome();
     setupRecordTargets();
+    setupKeyCodesPage();
 
     connect(ui.LeftSideBar, &QListWidget::currentRowChanged,
             ui.stackedWidget, &QStackedWidget::setCurrentIndex);
@@ -43,6 +57,7 @@ MainWindow::MainWindow(Database& database, InputPipeline& pipeline, Recorder& re
 }
 
 MainWindow::~MainWindow() {
+    stopBindListen({});
     spdlog::info("[ui] MainWindow destroyed");
 }
 
@@ -128,6 +143,384 @@ void MainWindow::onRecordTargetChanged() {
         return;
     }
     appConfig_.save();
+}
+
+namespace {
+
+QTableWidgetItem* textItem(const QString& text) {
+    auto* item = new QTableWidgetItem(text);
+    item->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
+    return item;
+}
+
+QString nativeVkText(const std::optional<int>& vk) {
+    if (!vk) {
+        return {};
+    }
+    return QStringLiteral("0x%1").arg(*vk, 2, 16, QLatin1Char('0')).toUpper();
+}
+
+bool promptNewKeyCode(QWidget* parent, QString& keyId, QString& kind, QString& valueKind,
+                      QString& label, std::optional<double>& rangeMin,
+                      std::optional<double>& rangeMax) {
+    QDialog dlg(parent);
+    dlg.setWindowTitle(QStringLiteral("注册码本条目"));
+    auto* form = new QFormLayout(&dlg);
+    auto* keyEdit = new QLineEdit(&dlg);
+    keyEdit->setPlaceholderText(QStringLiteral("如 extra-1"));
+    auto* labelEdit = new QLineEdit(&dlg);
+    auto* kindBox = new QComboBox(&dlg);
+    kindBox->addItem(QStringLiteral("键盘"), QStringLiteral("keyboard"));
+    kindBox->addItem(QStringLiteral("鼠标"), QStringLiteral("mouse"));
+    kindBox->addItem(QStringLiteral("手柄"), QStringLiteral("gamepad"));
+    auto* valueBox = new QComboBox(&dlg);
+    valueBox->addItem(QStringLiteral("数字键"), QStringLiteral("digital"));
+    valueBox->addItem(QStringLiteral("线性轴"), QStringLiteral("analog"));
+    auto* minSpin = new QDoubleSpinBox(&dlg);
+    minSpin->setDecimals(3);
+    minSpin->setRange(-100.0, 100.0);
+    minSpin->setValue(0.0);
+    auto* maxSpin = new QDoubleSpinBox(&dlg);
+    maxSpin->setDecimals(3);
+    maxSpin->setRange(-100.0, 100.0);
+    maxSpin->setValue(1.0);
+    form->addRow(QStringLiteral("key_id"), keyEdit);
+    form->addRow(QStringLiteral("标签"), labelEdit);
+    form->addRow(QStringLiteral("类型"), kindBox);
+    form->addRow(QStringLiteral("值"), valueBox);
+    form->addRow(QStringLiteral("range_min"), minSpin);
+    form->addRow(QStringLiteral("range_max"), maxSpin);
+    const auto syncRange = [valueBox, minSpin, maxSpin] {
+        const bool analog = valueBox->currentData().toString() == QLatin1String("analog");
+        minSpin->setEnabled(analog);
+        maxSpin->setEnabled(analog);
+    };
+    QObject::connect(valueBox, &QComboBox::currentIndexChanged, &dlg, syncRange);
+    syncRange();
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    form->addRow(buttons);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted) {
+        return false;
+    }
+    keyId = keyEdit->text();
+    label = labelEdit->text();
+    kind = kindBox->currentData().toString();
+    valueKind = valueBox->currentData().toString();
+    if (valueKind == QLatin1String("analog")) {
+        rangeMin = minSpin->value();
+        rangeMax = maxSpin->value();
+    } else {
+        rangeMin.reset();
+        rangeMax.reset();
+    }
+    return true;
+}
+
+bool promptKeyMeta(QWidget* parent, const KeyCodeRecord& row, QString& label,
+                   std::optional<double>& rangeMin, std::optional<double>& rangeMax) {
+    QDialog dlg(parent);
+    dlg.setWindowTitle(QStringLiteral("改标签"));
+    auto* form = new QFormLayout(&dlg);
+    form->addRow(QStringLiteral("key_id"), new QLabel(row.keyId, &dlg));
+    auto* labelEdit = new QLineEdit(row.defaultLabel, &dlg);
+    form->addRow(QStringLiteral("标签"), labelEdit);
+    QDoubleSpinBox* minSpin = nullptr;
+    QDoubleSpinBox* maxSpin = nullptr;
+    const bool analog = row.valueKind == QLatin1String("analog");
+    if (analog) {
+        minSpin = new QDoubleSpinBox(&dlg);
+        maxSpin = new QDoubleSpinBox(&dlg);
+        minSpin->setDecimals(3);
+        maxSpin->setDecimals(3);
+        minSpin->setRange(-100.0, 100.0);
+        maxSpin->setRange(-100.0, 100.0);
+        minSpin->setValue(row.rangeMin.value_or(0.0));
+        maxSpin->setValue(row.rangeMax.value_or(1.0));
+        form->addRow(QStringLiteral("range_min"), minSpin);
+        form->addRow(QStringLiteral("range_max"), maxSpin);
+    }
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    form->addRow(buttons);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted) {
+        return false;
+    }
+    label = labelEdit->text();
+    if (analog) {
+        rangeMin = minSpin->value();
+        rangeMax = maxSpin->value();
+    } else {
+        rangeMin.reset();
+        rangeMax.reset();
+    }
+    return true;
+}
+
+} // namespace
+
+void MainWindow::setupKeyCodesPage() {
+    ui.tableKeyCodes->setColumnCount(6);
+    ui.tableKeyCodes->setHorizontalHeaderLabels(
+        {QStringLiteral("key_id"), QStringLiteral("kind"), QStringLiteral("value"),
+         QStringLiteral("native_vk"), QStringLiteral("标签"), QStringLiteral("origin")});
+    ui.tableKeyCodes->verticalHeader()->setVisible(false);
+    ui.tableKeyCodes->setShowGrid(false);
+    ui.tableKeyCodes->setWordWrap(false);
+    ui.tableKeyCodes->horizontalHeader()->setStretchLastSection(true);
+    ui.tableKeyCodes->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+
+    bindQueue_ = pipeline_.bus().subscribe(bindListenSubscribeOptions());
+    bindListenTimer_.setInterval(20);
+    connect(&bindListenTimer_, &QTimer::timeout, this, &MainWindow::pollBindListen);
+    connect(ui.btnKeyCodeAdd, &QPushButton::clicked, this, &MainWindow::onKeyCodeAdd);
+    connect(ui.btnKeyCodeEdit, &QPushButton::clicked, this, &MainWindow::onKeyCodeEdit);
+    connect(ui.btnKeyCodeBind, &QPushButton::clicked, this, &MainWindow::onKeyCodeBind);
+    connect(ui.btnKeyCodeDelete, &QPushButton::clicked, this, &MainWindow::onKeyCodeDelete);
+    connect(ui.tableKeyCodes, &QTableWidget::itemSelectionChanged, this,
+            &MainWindow::updateKeyCodeActions);
+
+    refreshKeyCodesTable();
+    reloadPipelineCodebook();
+}
+
+void MainWindow::reloadPipelineCodebook() {
+    std::vector<InputPipeline::NativeVkBinding> bindings;
+    const auto rows = database_.listKeyCodes();
+    bindings.reserve(rows.size());
+    for (const auto& row : rows) {
+        if (!row.nativeVk) {
+            continue;
+        }
+        if (row.kind != QLatin1String("keyboard") && row.kind != QLatin1String("mouse")) {
+            continue;
+        }
+        InputPipeline::NativeVkBinding b;
+        b.kind = row.kind.toStdString();
+        b.nativeVk = *row.nativeVk;
+        b.keyId = row.keyId.toStdString();
+        bindings.push_back(std::move(b));
+    }
+    pipeline_.reloadNativeVkMap(std::move(bindings));
+}
+
+void MainWindow::refreshKeyCodesTable() {
+    const auto keepId = selectedKeyCodeId();
+    const QSignalBlocker blocker(ui.tableKeyCodes);
+    ui.tableKeyCodes->setRowCount(0);
+    const auto rows = database_.listKeyCodes();
+    ui.tableKeyCodes->setRowCount(static_cast<int>(rows.size()));
+    int restore = -1;
+    for (int i = 0; i < static_cast<int>(rows.size()); ++i) {
+        const auto& row = rows[static_cast<std::size_t>(i)];
+        auto* idItem = textItem(row.keyId);
+        idItem->setData(Qt::UserRole, row.id);
+        ui.tableKeyCodes->setItem(i, 0, idItem);
+        ui.tableKeyCodes->setItem(i, 1, textItem(row.kind));
+        ui.tableKeyCodes->setItem(i, 2, textItem(row.valueKind));
+        ui.tableKeyCodes->setItem(i, 3, textItem(nativeVkText(row.nativeVk)));
+        ui.tableKeyCodes->setItem(i, 4, textItem(row.defaultLabel));
+        ui.tableKeyCodes->setItem(i, 5, textItem(row.origin));
+        if (keepId && row.id == *keepId) {
+            restore = i;
+        }
+    }
+    if (restore >= 0) {
+        ui.tableKeyCodes->selectRow(restore);
+    }
+    updateKeyCodeActions();
+}
+
+void MainWindow::updateKeyCodeActions() {
+    const auto row = selectedKeyCode();
+    const bool has = row.has_value();
+    ui.btnKeyCodeAdd->setEnabled(!bindListening_);
+    ui.btnKeyCodeEdit->setEnabled(has && !bindListening_);
+    ui.btnKeyCodeBind->setEnabled(bindListening_ || has);
+    ui.btnKeyCodeDelete->setEnabled(has && !bindListening_ &&
+                                    row->origin != QLatin1String("builtin"));
+    ui.tableKeyCodes->setEnabled(!bindListening_);
+}
+
+std::optional<qint64> MainWindow::selectedKeyCodeId() const {
+    const int row = ui.tableKeyCodes->currentRow();
+    if (row < 0) {
+        return std::nullopt;
+    }
+    const auto* item = ui.tableKeyCodes->item(row, 0);
+    if (!item) {
+        return std::nullopt;
+    }
+    const qint64 id = item->data(Qt::UserRole).toLongLong();
+    if (id <= 0) {
+        return std::nullopt;
+    }
+    return id;
+}
+
+std::optional<KeyCodeRecord> MainWindow::selectedKeyCode() const {
+    const auto id = selectedKeyCodeId();
+    if (!id) {
+        return std::nullopt;
+    }
+    return database_.findById(*id);
+}
+
+void MainWindow::onKeyCodeAdd() {
+    QString keyId;
+    QString kind;
+    QString valueKind;
+    QString label;
+    std::optional<double> rangeMin;
+    std::optional<double> rangeMax;
+    if (!promptNewKeyCode(this, keyId, kind, valueKind, label, rangeMin, rangeMax)) {
+        return;
+    }
+    const auto id = database_.insertUserKey(keyId, kind, valueKind, label, rangeMin, rangeMax);
+    if (!id) {
+        QMessageBox::warning(this, QStringLiteral("注册失败"),
+                             QStringLiteral("key_id 须为小写字母数字和 '-'，且不能与已有条目重复。"));
+        return;
+    }
+    refreshKeyCodesTable();
+    reloadPipelineCodebook();
+    statusBar()->showMessage(QStringLiteral("已注册 %1").arg(keyId.trimmed().toLower()), 4000);
+}
+
+void MainWindow::onKeyCodeEdit() {
+    const auto row = selectedKeyCode();
+    if (!row) {
+        return;
+    }
+    QString label;
+    std::optional<double> rangeMin;
+    std::optional<double> rangeMax;
+    if (!promptKeyMeta(this, *row, label, rangeMin, rangeMax)) {
+        return;
+    }
+    if (!database_.updateKeyMeta(row->id, label, rangeMin, rangeMax)) {
+        QMessageBox::warning(this, QStringLiteral("保存失败"),
+                             QStringLiteral("标签不能为空；线性轴需要 range_min < range_max。"));
+        return;
+    }
+    refreshKeyCodesTable();
+    statusBar()->showMessage(QStringLiteral("已更新 %1").arg(row->keyId), 4000);
+}
+
+void MainWindow::onKeyCodeDelete() {
+    const auto row = selectedKeyCode();
+    if (!row) {
+        return;
+    }
+    if (row->origin == QLatin1String("builtin")) {
+        return;
+    }
+    const auto ret = QMessageBox::question(
+        this, QStringLiteral("删除码本条目"),
+        QStringLiteral("删除 %1（%2）？").arg(row->keyId, row->origin),
+        QMessageBox::Ok | QMessageBox::Cancel, QMessageBox::Cancel);
+    if (ret != QMessageBox::Ok) {
+        return;
+    }
+    if (!database_.deleteKeyCode(row->id)) {
+        QMessageBox::warning(this, QStringLiteral("删除失败"),
+                             QStringLiteral("预置条目不能删。"));
+        return;
+    }
+    refreshKeyCodesTable();
+    reloadPipelineCodebook();
+    statusBar()->showMessage(QStringLiteral("已删除 %1").arg(row->keyId), 4000);
+}
+
+void MainWindow::onKeyCodeBind() {
+    if (bindListening_) {
+        stopBindListen(QStringLiteral("已取消监听"));
+        return;
+    }
+    const auto row = selectedKeyCode();
+    if (!row) {
+        return;
+    }
+    if (row->kind == QLatin1String("gamepad")) {
+        QMessageBox::information(this, QStringLiteral("无需绑定"),
+                                 QStringLiteral("手柄用 key_id 识别，无需 native_vk。"));
+        return;
+    }
+    if (row->valueKind != QLatin1String("digital") ||
+        (row->kind != QLatin1String("keyboard") && row->kind != QLatin1String("mouse"))) {
+        QMessageBox::information(this, QStringLiteral("无法监听"),
+                                 QStringLiteral("只对键盘/鼠标数字键监听绑定 native_vk。轴不绑 VK。"));
+        return;
+    }
+    startBindListen(row->id);
+}
+
+void MainWindow::startBindListen(qint64 id) {
+    if (!bindQueue_) {
+        spdlog::error("[ui] bind queue missing");
+        return;
+    }
+    while (bindQueue_->tryPop()) {
+    }
+    bindListening_ = true;
+    bindListenTargetId_ = id;
+    bindListenUntilMs_ = QDateTime::currentMSecsSinceEpoch() + 8000;
+    ui.btnKeyCodeBind->setText(QStringLiteral("取消监听"));
+    updateKeyCodeActions();
+    bindListenTimer_.start();
+    statusBar()->showMessage(QStringLiteral("请按下要绑定的键（8 秒）"));
+    spdlog::info("[ui] codebook listen start id={}", id);
+}
+
+void MainWindow::stopBindListen(const QString& status) {
+    if (!bindListening_) {
+        return;
+    }
+    bindListening_ = false;
+    bindListenTimer_.stop();
+    bindListenTargetId_ = 0;
+    ui.btnKeyCodeBind->setText(QStringLiteral("监听绑定"));
+    updateKeyCodeActions();
+    if (!status.isEmpty()) {
+        statusBar()->showMessage(status, 4000);
+    }
+}
+
+void MainWindow::pollBindListen() {
+    if (!bindListening_ || !bindQueue_) {
+        return;
+    }
+    if (QDateTime::currentMSecsSinceEpoch() >= bindListenUntilMs_) {
+        stopBindListen(QStringLiteral("监听超时"));
+        return;
+    }
+    while (const auto ev = bindQueue_->tryPop()) {
+        if (applyBindEvent(*ev)) {
+            return;
+        }
+    }
+}
+
+bool MainWindow::applyBindEvent(const InputEvent& event) {
+    if (event.type != InputEventType::KeyDown &&
+        event.type != InputEventType::MouseButtonDown) {
+        return false;
+    }
+    if (event.vkey == 0) {
+        return false;
+    }
+    const qint64 id = bindListenTargetId_;
+    if (!database_.bindNativeVk(id, event.vkey)) {
+        stopBindListen(QStringLiteral("绑定失败"));
+        return true;
+    }
+    reloadPipelineCodebook();
+    refreshKeyCodesTable();
+    stopBindListen(
+        QStringLiteral("已绑定 native_vk=%1").arg(nativeVkText(static_cast<int>(event.vkey))));
+    return true;
 }
 
 void MainWindow::pollGamepads() {
@@ -235,6 +628,8 @@ void MainWindow::onDebugRebuildDatabase() {
         return;
     }
     spdlog::info("[ui] debug database recreated");
+    refreshKeyCodesTable();
+    reloadPipelineCodebook();
     statusBar()->showMessage(QStringLiteral("数据库已重建"), 4000);
     refreshDebugStats();
 }

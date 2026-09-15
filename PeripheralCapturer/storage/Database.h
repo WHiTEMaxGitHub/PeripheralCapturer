@@ -67,9 +67,31 @@ public:
     // 先关连接再删 data.db / -wal / -shm，然后 open。WAL 不关就删会失败。
     bool recreate();
 
+    std::optional<KeyCodeRecord> findById(qint64 id) const;
     std::optional<KeyCodeRecord> findByKeyId(const QString& keyId) const;
     std::optional<KeyCodeRecord> findByNativeVk(const QString& kind, int nativeVk) const;
     std::optional<KeyCodeRecord> findByNativeHid(int usagePage, int usage) const;
+    std::vector<KeyCodeRecord> listKeyCodes() const;
+
+    // 码本页：origin=user。key_id 小写、字母数字和 '-'。
+    std::optional<qint64> insertUserKey(const QString& keyId,
+                                        const QString& kind,
+                                        const QString& valueKind,
+                                        const QString& label,
+                                        std::optional<double> rangeMin = std::nullopt,
+                                        std::optional<double> rangeMax = std::nullopt);
+
+    // builtin 可改标签/范围，不能改 key_id / value_kind。
+    bool updateKeyMeta(qint64 id, const QString& label, std::optional<double> rangeMin,
+                       std::optional<double> rangeMax);
+
+    // 同一 kind 上同一个 VK 只留这一行，否则 findByNativeVk LIMIT 1 会绑错。
+    bool bindNativeVk(qint64 id, int nativeVk);
+
+    // 只删 user / capture。
+    bool deleteKeyCode(qint64 id);
+
+    static bool isValidKeyId(const QString& keyId);
 
     // 开录：写 sessions 一行，冻 fps 和 device_bits。通道表不进库。
     std::optional<RecordingSession> beginRecording(const BeginRecordingRequest& req);
