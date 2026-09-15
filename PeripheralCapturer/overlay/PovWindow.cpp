@@ -165,10 +165,15 @@ PovWindow::PovWindow(QWindow* parent): QWebView(parent) {
 
     if (QScreen* screen = QGuiApplication::primaryScreen()) {
         const QRect area = screen->availableGeometry();
-        resize(400, 240);
-        setPosition(area.right() - 420, area.top() + 48);
-        spdlog::debug("[pov] place on screen avail={}x{} pos={},{}", area.width(), area.height(),
-                      area.right() - 420, area.top() + 48);
+        const int w = 400;
+        const int h = 240;
+        resize(w, h);
+        // 左侧中部，避开右上角配置窗。
+        const int x = area.left() + 24;
+        const int y = area.top() + (area.height() - h) / 2;
+        setPosition(x, y);
+        spdlog::debug("[pov] place on screen avail={}x{} pos={},{}", area.width(), area.height(), x,
+                      y);
     } else {
         resize(400, 240);
         spdlog::warn("[pov] primaryScreen is null, using default 400x240");
