@@ -10,13 +10,9 @@
 
 #include <spdlog/spdlog.h>
 
-namespace {
-
-QString configPath() {
+QString AppConfig::filePath() {
     return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("app-config.json"));
 }
-
-} // namespace
 
 uint16_t AppConfig::recordingDeviceBits() const {
     uint16_t bits = 0;
@@ -34,7 +30,7 @@ uint16_t AppConfig::recordingDeviceBits() const {
 
 AppConfig AppConfig::load() {
     AppConfig cfg;
-    const QString path = configPath();
+    const QString path = filePath();
     QFile file(path);
     if (!file.exists()) {
         spdlog::info("[ui] app-config missing, using keyboard+mouse");
@@ -70,7 +66,7 @@ AppConfig AppConfig::load() {
 }
 
 bool AppConfig::save() const {
-    const QString path = configPath();
+    const QString path = filePath();
     QJsonObject root;
     {
         QFile existing(path);

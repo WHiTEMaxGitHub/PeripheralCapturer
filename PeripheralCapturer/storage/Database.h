@@ -46,9 +46,24 @@ struct KeyCodeRecord {
 
 class Database {
 public:
+    struct Stats {
+        QString path;
+        bool open = false;
+        int schemaVersion = -1;
+        int keyCodes = 0;
+        int sessions = 0;
+        int frames = 0;
+        int markers = 0;
+    };
+
     bool open(const QString& dbFilePath);
     void close();
     bool isOpen() const;
+    QString filePath() const { return filePath_; }
+    Stats stats() const;
+
+    // 先关连接再删 data.db / -wal / -shm，然后 open。WAL 不关就删会失败。
+    bool recreate();
 
     std::optional<KeyCodeRecord> findByKeyId(const QString& keyId) const;
     std::optional<KeyCodeRecord> findByNativeVk(const QString& kind, int nativeVk) const;
@@ -82,7 +97,11 @@ public:
 
 private:
     bool execSql(const QString& sql);
+    bool connectToFile(const QString& dbFilePath);
+    int readSchemaVersion() const;
     bool resetSchema();
     bool migrate();
     bool seedBuiltins();
+
+    QString filePath_;
 };

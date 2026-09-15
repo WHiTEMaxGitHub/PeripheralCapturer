@@ -3,6 +3,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -213,10 +214,11 @@ bool Database::execSql(const QString& sql) {
                       sql.left(80).toStdString());
         return false;
     }
+    q.finish();
     return true;
 }
 
-bool Database::open(const QString& dbFilePath) {
+bool Database::connectToFile(const QString& dbFilePath) {
     if (QSqlDatabase::contains(QLatin1String(kConnection))) {
         QSqlDatabase::removeDatabase(QLatin1String(kConnection));
     }
@@ -239,12 +241,25 @@ bool Database::open(const QString& dbFilePath) {
             spdlog::warn("[db] PRAGMA foreign_keys failed: {}",
                          pragma.lastError().text().toStdString());
         }
+        pragma.finish();
+        // journal_mode 会返回一行；不 next/finish 的话语句还占着连接，后面 DROP 会 locked。
         if (!pragma.exec(QStringLiteral("PRAGMA journal_mode = WAL"))) {
             spdlog::warn("[db] PRAGMA journal_mode=WAL failed: {}",
                          pragma.lastError().text().toStdString());
+        } else {
+            pragma.next();
         }
+        pragma.finish();
     }
     spdlog::info("[db] opened {}", dbFilePath.toStdString());
+    return true;
+}
+
+bool Database::open(const QString& dbFilePath) {
+    filePath_ = dbFilePath;
+    if (!connectToFile(dbFilePath)) {
+        return false;
+    }
     if (!migrate() || !seedBuiltins()) {
         return false;
     }
@@ -267,6 +282,80 @@ void Database::close() {
 
 bool Database::isOpen() const {
     return QSqlDatabase::contains(QLatin1String(kConnection)) && db().isOpen();
+}
+
+namespace {
+
+int countTable(const char* table) {
+    QSqlQuery q(db());
+    if (!q.exec(QStringLiteral("SELECT COUNT(*) FROM %1").arg(QLatin1String(table))) || !q.next()) {
+        return -1;
+    }
+    return q.value(0).toInt();
+}
+
+bool removeSqliteFiles(const QString& path) {
+    bool ok = true;
+    const QString files[] = {
+        path,
+        path + QStringLiteral("-wal"),
+        path + QStringLiteral("-shm"),
+    };
+    for (const auto& file : files) {
+        if (!QFile::exists(file)) {
+            continue;
+        }
+        if (!QFile::remove(file)) {
+            spdlog::warn("[db] recreate cannot delete {}", file.toStdString());
+            ok = false;
+        }
+    }
+    return ok;
+}
+
+} // namespace
+
+Database::Stats Database::stats() const {
+    Stats out;
+    out.path = filePath_;
+    out.open = isOpen();
+    if (!out.open) {
+        return out;
+    }
+    QSqlQuery q(db());
+    if (q.exec(QStringLiteral("SELECT version FROM schema_version LIMIT 1")) && q.next()) {
+        out.schemaVersion = q.value(0).toInt();
+    }
+    out.keyCodes = countTable("key_codes");
+    out.sessions = countTable("sessions");
+    out.frames = countTable("frame_data");
+    out.markers = countTable("markers");
+    return out;
+}
+
+bool Database::recreate() {
+    if (filePath_.isEmpty()) {
+        spdlog::error("[db] recreate: no path");
+        return false;
+    }
+    const QString path = filePath_;
+    // WAL 打开时 Windows 锁着文件，必须先 close / removeDatabase。
+    close();
+    const bool filesGone = removeSqliteFiles(path);
+    if (!filesGone) {
+        spdlog::warn("[db] recreate files locked, DROP tables instead path={}", path.toStdString());
+        if (!open(path) || !resetSchema()) {
+            return false;
+        }
+        close();
+    } else {
+        spdlog::warn("[db] recreate deleted sqlite files path={}", path.toStdString());
+    }
+    const bool ok = open(path);
+    if (ok) {
+        spdlog::info("[db] recreate done path={}", path.toStdString());
+    }
+    return ok;
 }
 
 std::optional<KeyCodeRecord> Database::findByKeyId(const QString& keyId) const {
@@ -340,20 +429,37 @@ bool Database::resetSchema() {
     return true;
 }
 
-bool Database::migrate() {
-    QSqlQuery q(db());
+int Database::readSchemaVersion() const {
     int version = 0;
-    const bool hasVersion = q.exec(QStringLiteral("SELECT version FROM schema_version LIMIT 1")) &&
-                            q.next();
-    if (hasVersion) {
-        version = q.value(0).toInt();
+    {
+        QSqlQuery q(db());
+        if (q.exec(QStringLiteral("SELECT version FROM schema_version LIMIT 1")) && q.next()) {
+            version = q.value(0).toInt();
+        }
+        q.finish();
     }
+    return version;
+}
+
+bool Database::migrate() {
+    int version = readSchemaVersion();
     if (version > kSchemaVersion) {
         spdlog::error("[db] schema version {} newer than binary {}", version, kSchemaVersion);
         return false;
     }
     if (version != 0 && version != kSchemaVersion) {
-        if (!resetSchema()) {
+        // 旧库不兼容：关连接再删文件。Qt 的 QSqlQuery 不 finish 就 DROP 会 table locked。
+        spdlog::warn("[db] schema {} != {}, recreating empty database", version, kSchemaVersion);
+        const QString path = filePath_;
+        close();
+        if (!removeSqliteFiles(path)) {
+            spdlog::warn("[db] sqlite files locked, trying DROP TABLE path={}", path.toStdString());
+            if (!connectToFile(path) || !resetSchema()) {
+                spdlog::error("[db] old schema wipe failed; close any other process using {}",
+                              path.toStdString());
+                return false;
+            }
+        } else if (!connectToFile(path)) {
             return false;
         }
         version = 0;
@@ -373,6 +479,7 @@ bool Database::migrate() {
                           ins.lastError().text().toStdString());
             return false;
         }
+        ins.finish();
         spdlog::info("[db] schema initialized version={}", kSchemaVersion);
         return true;
     }

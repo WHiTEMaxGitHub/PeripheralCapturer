@@ -33,6 +33,10 @@ public:
     BoundedQueue<RawInputPacket>& packets() { return packets_; }
     InputEventBus& bus() { return bus_; }
 
+    bool running() const { return running_.load(std::memory_order_relaxed); }
+    uint64_t publishedCount() const { return published_.load(std::memory_order_relaxed); }
+    std::size_t packetDropped() const { return packets_.dropped(); }
+
 private:
     void run();
     void processPacket(const RawInputPacket& pkt);
