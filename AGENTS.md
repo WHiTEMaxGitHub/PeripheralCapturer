@@ -34,7 +34,7 @@
 
 | 窗 | 职责 |
 | --- | --- |
-| 配置 `Layout/MainWindow` | Widgets：设备 / 码本 / Profile / 录制库 |
+| 配置 `Layout/MainWindow` | Widgets：设备 / 码本 / Profile / 录制库；**Debug 构建**另有调试页（重建库等） |
 | POV `overlay/PovWindow` | 独立 `QWebView`，只画降频快照 |
 | 捕获 `capture/HiddenCaptureWindow` | `HWND_MESSAGE`，收 `WM_INPUT` |
 

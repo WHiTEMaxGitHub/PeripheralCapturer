@@ -89,4 +89,4 @@ cmake --preset x64-debug
 cmake --build --preset x64-debug
 ```
 
-Qt 路径在顶层 `CMakeLists.txt` 的 `CMAKE_PREFIX_PATH`。POV 开发另开 `PeripheralCapturer/web` 的 `npm run dev`。
+Qt 路径在顶层 `CMakeLists.txt` 的 `CMAKE_PREFIX_PATH`。Debug 会自动拉 `PeripheralCapturer/web` 的 Vite；也可手动 `npm run dev`。

@@ -92,13 +92,13 @@ PeripheralCapturer/                 # 仓库根
 
 | 窗口 | 类 | 看得见？ | 职责 |
 | --- | --- | --- | --- |
-| **配置** | `MainWindow`（Qt Widgets） | 是 | 设备 / 码本 / Profile / 录制库 / 日志 |
+| **配置** | `MainWindow`（Qt Widgets） | 是 | 设备 / 码本 / Profile / 录制库 / 日志；Debug 构建多一页「调试」 |
 | **POV** | `PovWindow`（`QWebView` + Vue） | 是（浮层） | 只画降频快照，不采集 |
 | **捕获** | `HiddenCaptureWindow`（`HWND_MESSAGE`，0×0） | 否 | `WM_INPUT` 目标窗；只拷包入队 |
 
 POV 不是配置窗的子控件，捕获窗也不是配置窗的 `winId()`。捕获窗用 `HWND_MESSAGE`，没有客户区、不进任务栏。
 
-**配置窗**管设备勾选 / 码本 / Profile / 录制库。**POV** 开发期加载 Vite `http://127.0.0.1:5173`，没开 Vite 时 `loadHtml` 离线页；和 Native 用本机 WebSocket。**捕获窗** `RegisterRawInputDevices`（键 `0x06`、鼠 `0x02`），`RIDEV_INPUTSINK`，不要 `RIDEV_NOLEGACY`。
+**配置窗**管设备勾选 / 码本 / Profile / 录制库。**POV** Debug 会自动 `npm run dev`（`127.0.0.1:5173` 已占用则复用）；没起来才 `loadHtml` 离线页。和 Native 用本机 WebSocket。**捕获窗** `RegisterRawInputDevices`（键 `0x06`、鼠 `0x02`），`RIDEV_INPUTSINK`，不要 `RIDEV_NOLEGACY`。
 
 ```text
 HiddenRawInputWindow

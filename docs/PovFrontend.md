@@ -4,13 +4,17 @@
 
 ## 怎么跑
 
+Debug 构建会自己找 `PeripheralCapturer/web`、必要时 `npm install`，再 `npm run dev`。`127.0.0.1:5173` 已经在听就复用，退出不杀。本机需要已安装 Node.js（`npm.cmd` 在 PATH 里）。
+
+仍可手动：
+
 ```bat
 cd PeripheralCapturer\web
 npm install
 npm run dev
 ```
 
-然后启动 C++ 程序。POV 打开 `http://127.0.0.1:5173`，边框和 HUD 是 Vue 组件（`PovShell` / `PovHud`），不要在 C++ 里 `runJavaScript` 拼 DOM。没开 Vite 时落到 `qrc` 离线提示页（没有 Vue）。
+POV 打开 `http://127.0.0.1:5173`，边框和 HUD 是 Vue 组件（`PovShell` / `PovHud`），不要在 C++ 里 `runJavaScript` 拼 DOM。Vite 没起来时落到 `qrc` 离线提示页（没有 Vue）。Release **不**自动拉 Vite。
 
 发布：`npm run build`，再把 `dist/` 打进资源或放到 exe 旁（尚未接进 CMake）。
 

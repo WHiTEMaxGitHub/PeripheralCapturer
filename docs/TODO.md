@@ -10,6 +10,8 @@
 - [x] POV：`QWebView` + Vue/Vite 工程 + 本机 WS 约定文档
 - [x] 设备页：XInput 槽位 + HID 手柄枚举（1Hz，不采按键）
 - [x] 日志前缀与启动/失败分支
+- [x] 配置窗 Debug 页：重建 `data.db`、恢复 `app-config`、采集计数、POV 穿透切换
+- [x] Debug 自动拉起 Vite（`npm run dev`，已占用 5173 则复用）
 
 ## 下一步（建议按此顺序）
 
